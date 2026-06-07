@@ -7,7 +7,7 @@ import { buildWordMap } from '@/lib/pipeline/wordMap'
 import { PDF_RENDER_SCALE } from '@/lib/pdf/constants'
 import { toast } from 'sonner'
 
-const PREFETCH_WINDOW = 3
+const PREFETCH_WINDOW = 6
 
 export function useOcrPrefetch() {
   const workerRef = useRef<Worker | null>(null)
@@ -40,7 +40,7 @@ export function useOcrPrefetch() {
 
         const allPages = Array.from(pageWordsMap.keys()).sort((a, b) => a - b)
         const allRaw = allPages.flatMap((p) => pageWordsMap.get(p) ?? [])
-        const { words, sentences, fullText: _ft } = buildWordMap(allRaw)
+        const { words, sentences } = buildWordMap(allRaw)
         const sentenceTexts = sentences.map((s) => s.text)
         setWords(words, sentences, sentenceTexts)
         setExtracting(pendingPages.current.size > 0, (allPages.length / totalPages) * 100)
@@ -100,9 +100,9 @@ export function useOcrPrefetch() {
   const prefetchAround = useCallback(
     (currentPage: number) => {
       if (!isScanned || !pdfDoc) return
-      for (let i = 0; i < PREFETCH_WINDOW; i++) {
-        const page = currentPage + i
-        if (page <= totalPages) {
+      for (let offset = -1; offset < PREFETCH_WINDOW; offset++) {
+        const page = currentPage + offset
+        if (page >= 1 && page <= totalPages) {
           void ocrPage(page)
         }
       }

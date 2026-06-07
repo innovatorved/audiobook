@@ -8,6 +8,7 @@ import {
 import { Scrubber } from '@/components/player/Scrubber'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { formatBytes } from '@/lib/tts/kittenDownload'
+import { isEngineReady } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 
 interface PlayerBarProps {
@@ -27,20 +28,24 @@ export function PlayerBar({
     isPlaying,
     isModelReady,
     isModelLoading,
+    engine,
     modelProgress,
     modelLoadedBytes,
     modelTotalBytes,
     currentSentenceIndex,
     totalSentences,
+    activePageNum,
   } = usePlayerStore()
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-5 pt-6 sm:px-6">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
       <div
-        className="w-full max-w-2xl rounded-2xl border border-border/60 bg-card shadow-lg"
+        role="region"
+        aria-label="Audio player"
+        className="pointer-events-auto w-full max-w-xl rounded-xl border border-border bg-card shadow-md"
       >
         {isModelLoading && !isModelReady && (
-          <div className="border-b border-border/50 px-4 py-2.5">
+          <div className="border-b border-border px-4 py-2">
             <ProgressBar
               value={modelProgress}
               label={
@@ -52,11 +57,11 @@ export function PlayerBar({
           </div>
         )}
 
-        <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-muted-foreground"
+            size="icon"
+            className="size-9 shrink-0"
             onClick={onSkipBack}
             aria-label="Previous sentence"
           >
@@ -68,15 +73,15 @@ export function PlayerBar({
               <Button
                 variant="default"
                 size="icon"
-                className="size-11 shrink-0 rounded-full"
+                className="size-10 shrink-0 rounded-full"
                 onClick={onPlayPause}
-                disabled={!isModelReady || isModelLoading}
+                disabled={!isModelReady || isModelLoading || !isEngineReady(engine)}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (
-                  <Pause className="size-[18px]" fill="currentColor" />
+                  <Pause className="size-4" fill="currentColor" />
                 ) : (
-                  <Play className="ml-0.5 size-[18px]" fill="currentColor" />
+                  <Play className="ml-0.5 size-4" fill="currentColor" />
                 )}
               </Button>
             </TooltipTrigger>
@@ -91,8 +96,8 @@ export function PlayerBar({
 
           <Button
             variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-muted-foreground"
+            size="icon"
+            className="size-9 shrink-0"
             onClick={onSkipForward}
             aria-label="Next sentence"
           >
@@ -107,10 +112,16 @@ export function PlayerBar({
             />
           </div>
 
-          <span className="hidden shrink-0 tabular-nums text-xs text-muted-foreground sm:inline">
+          <span
+            className="hidden shrink-0 tabular-nums text-xs text-muted-foreground sm:inline"
+            aria-live="polite"
+          >
             {totalSentences > 0
               ? `${currentSentenceIndex + 1} / ${totalSentences}`
               : '—'}
+            {activePageNum > 0 && (
+              <span className="ml-1.5">· p.{activePageNum}</span>
+            )}
           </span>
         </div>
       </div>

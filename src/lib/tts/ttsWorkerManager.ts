@@ -1,10 +1,24 @@
 import TtsWorker from '@/workers/tts.worker?worker'
 import { downloadKittenModel } from '@/lib/tts/kittenDownload'
+import {
+  downloadPiperVoice,
+  getCachedPiperPreload,
+  type PiperPreload,
+} from '@/lib/tts/piperDownload'
+import { PIPER_DEFAULT_VOICE } from '@/lib/tts/piperVoices'
+import { getPreferredVoice, resolveVoiceForEngine, savePreferences } from '@/lib/preferences'
+import { syncVoiceWithEngineVoices } from '@/lib/tts/voiceSync'
 import { usePlayerStore, type ModelLoadStatus } from '@/stores/playerStore'
 import type { TtsEngineType } from '@/lib/types'
 
 const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
-const STREAM_WINDOW = 5
+const FIRST_STREAM_WINDOW = 1
+const CONTINUE_STREAM_WINDOW = 3
+
+const ENGINE_BYTES: Record<TtsEngineType, number> = {
+  kitten: 43 * 1024 * 1024,
+  piper: 75 * 1024 * 1024,
+}
 
 type ChunkHandler = (chunk: {
   text: string
@@ -23,6 +37,8 @@ type WorkerLoadMessage = {
   type: 'load'
   engineType: TtsEngineType
   kittenPreload?: KittenPreload
+  piperPreload?: PiperPreload
+  skipWarmup?: boolean
 }
 
 type StreamContext = {
@@ -31,16 +47,27 @@ type StreamContext = {
   speed: number
   nextIndex: number
   streamId: number
+  windowSize: number
 }
 
-let worker: Worker | null = null
+type EngineSlot = {
+  worker: Worker
+  loaded: boolean
+  loading: boolean
+}
+
+const slots = new Map<TtsEngineType, EngineSlot>()
+let activeEngine: TtsEngineType | null = null
 let onChunkRef: ChunkHandler | null = null
 let loadedEngine: TtsEngineType | null = null
 let loadInFlight: TtsEngineType | null = null
 let kittenPreload: KittenPreload | null = null
 let currentStreamId = 0
 let streamContext: StreamContext | null = null
+let switchToken = 0
 let prefetchId = 0
+const prefetchInFlight = new Set<string>()
+const sessionEnginesLoaded = new Set<TtsEngineType>()
 
 type CachedChunk = {
   text: string
@@ -48,27 +75,40 @@ type CachedChunk = {
   sampleRate: number
 }
 
-const prefetchCache = new Map<string, CachedChunk>()
-const pendingPrefetches = new Map<
-  number,
-  { sentenceIndex: number; voice: string; speed: number }
->()
-const prefetchWaiters = new Map<string, Array<() => void>>()
+const SYNTH_CACHE_MAX = 96
+const synthCache = new Map<string, CachedChunk>()
 
-function notifyPrefetchWaiters(key: string): void {
-  const waiters = prefetchWaiters.get(key)
-  if (!waiters) return
-  prefetchWaiters.delete(key)
-  for (const resolve of waiters) resolve()
-}
-
-function prefetchCacheKey(
-  sentenceIndex: number,
-  text: string,
+function synthCacheKey(
+  engine: TtsEngineType,
   voice: string,
   speed: number,
+  text: string,
 ): string {
-  return `${voice}|${speed}|${sentenceIndex}|${text}`
+  return `${engine}|${voice}|${speed}|${text}`
+}
+
+function rememberSynthChunk(
+  engine: TtsEngineType,
+  voice: string,
+  speed: number,
+  text: string,
+  chunk: CachedChunk,
+): void {
+  if (!text.trim()) return
+  const key = synthCacheKey(engine, voice, speed, text)
+  if (synthCache.has(key)) {
+    synthCache.delete(key)
+  }
+  synthCache.set(key, chunk)
+  while (synthCache.size > SYNTH_CACHE_MAX) {
+    const oldest = synthCache.keys().next().value
+    if (oldest === undefined) break
+    synthCache.delete(oldest)
+  }
+}
+
+export function clearSynthCache(): void {
+  synthCache.clear()
 }
 
 function getStore() {
@@ -98,9 +138,36 @@ function applyError(message: string): void {
   getStore().setModelError(message)
 }
 
+function getSlot(engineType: TtsEngineType): EngineSlot {
+  let slot = slots.get(engineType)
+  if (!slot) {
+    const worker = new TtsWorker()
+    slot = { worker, loaded: false, loading: false }
+    worker.onmessage = (event) => handleSlotMessage(engineType, event)
+    worker.onerror = (event) => {
+      if (activeEngine === engineType || slot?.loading) {
+        applyError(event.message || 'TTS worker failed')
+      }
+    }
+    worker.onmessageerror = () => {
+      if (activeEngine === engineType || slot?.loading) {
+        applyError('TTS worker received an invalid message')
+      }
+    }
+    slots.set(engineType, slot)
+  }
+  return slot
+}
+
+function getActiveWorker(): Worker | null {
+  if (!activeEngine) return null
+  return slots.get(activeEngine)?.worker ?? null
+}
+
 function postStreamWindow(): void {
+  const worker = getActiveWorker()
   if (!streamContext || !worker) return
-  const { chunks, voice, speed, nextIndex, streamId } = streamContext
+  const { chunks, voice, speed, nextIndex, streamId, windowSize } = streamContext
   if (nextIndex >= chunks.length) {
     streamContext = null
     return
@@ -112,50 +179,79 @@ function postStreamWindow(): void {
     voice,
     speed,
     startIndex: nextIndex,
-    windowSize: STREAM_WINDOW,
+    windowSize,
     streamId,
   })
 }
 
-function handleWorkerMessage(event: MessageEvent) {
+function handleSlotMessage(engineType: TtsEngineType, event: MessageEvent): void {
   const data = event.data
+  const slot = slots.get(engineType)
+  const isActive = activeEngine === engineType
+
   switch (data.type) {
     case 'progress': {
+      if (loadInFlight !== engineType && !isActive) break
       const status = (data.status ?? 'downloading') as ModelLoadStatus
-      applyProgress(data.loaded, data.total, status)
+      let loaded = data.loaded
+      let total = data.total
+      if (total > 0 && total <= 100 && loadInFlight) {
+        const engineBytes = ENGINE_BYTES[loadInFlight]
+        loaded = Math.round((loaded / total) * engineBytes)
+        total = engineBytes
+      }
+      applyProgress(loaded, total, status)
       break
     }
     case 'ready':
-      loadedEngine = loadInFlight
-      loadInFlight = null
+      if (slot) {
+        slot.loaded = true
+        slot.loading = false
+      }
+      if (isActive) {
+        loadedEngine = engineType
+        loadInFlight = null
+        slot?.worker.postMessage({ type: 'listVoices' })
+      }
+      break
+    case 'voices': {
+      if (!isActive) break
+      syncVoiceWithEngineVoices(data.voices, loadedEngine)
       getStore().setModelReady(true)
-      worker?.postMessage({ type: 'listVoices' })
+      if (loadedEngine) sessionEnginesLoaded.add(loadedEngine)
       break
-    case 'voices':
-      getStore().setVoices(data.voices)
-      break
-    case 'prefetchReady': {
-      const hadPending = pendingPrefetches.has(data.prefetchId)
-      pendingPrefetches.delete(data.prefetchId)
-      const sentenceIndex = data.sentenceIndex
-      const voice = data.voice
-      const speed = data.speed
-      const key = prefetchCacheKey(sentenceIndex, data.text, voice, speed)
-      prefetchCache.set(key, {
+    }
+    case 'prefetchChunk': {
+      if (!isActive || !loadedEngine) break
+      const ctx = streamContext
+      const voice = ctx?.voice ?? getStore().voice
+      const speed = ctx?.speed ?? getStore().speed
+      rememberSynthChunk(loadedEngine, voice, speed, data.text, {
         text: data.text,
         pcm: data.pcm,
         sampleRate: data.sampleRate,
       })
-      notifyPrefetchWaiters(key)
+      prefetchInFlight.delete(synthCacheKey(loadedEngine, voice, speed, data.text))
       break
     }
     case 'chunk':
-      if (data.streamId !== currentStreamId) break
+      if (!isActive || data.streamId !== currentStreamId) break
+      if (loadedEngine) {
+        const ctx = streamContext
+        if (ctx) {
+          rememberSynthChunk(loadedEngine, ctx.voice, ctx.speed, data.text, {
+            text: data.text,
+            pcm: data.pcm,
+            sampleRate: data.sampleRate,
+          })
+        }
+      }
       void Promise.resolve(onChunkRef?.(data))
       break
     case 'done':
-      if (data.streamId !== currentStreamId || !streamContext) break
+      if (!isActive || data.streamId !== currentStreamId || !streamContext) break
       streamContext.nextIndex = data.nextIndex
+      streamContext.windowSize = CONTINUE_STREAM_WINDOW
       if (streamContext.nextIndex < streamContext.chunks.length) {
         postStreamWindow()
       } else {
@@ -163,33 +259,18 @@ function handleWorkerMessage(event: MessageEvent) {
       }
       break
     case 'error':
-      applyError(data.message)
+      if (slot?.loading) {
+        slot.loading = false
+        if (isActive) applyError(data.message)
+      } else if (isActive) {
+        console.warn('[TTS] playback error:', data.message)
+      }
       break
   }
 }
 
-function ensureWorker(): Worker {
-  if (!worker) {
-    worker = new TtsWorker()
-    worker.onmessage = handleWorkerMessage
-    worker.onerror = (event) => {
-      applyError(event.message || 'TTS worker failed to start')
-    }
-    worker.onmessageerror = () => {
-      applyError('TTS worker received an invalid message')
-    }
-
-    if (loadedEngine === 'kitten' && kittenPreload) {
-      void startWorkerLoad('kitten', kittenPreload)
-    } else if (loadedEngine) {
-      void startWorkerLoad(loadedEngine)
-    }
-  }
-  return worker
-}
-
 async function downloadKittenOnMainThread(): Promise<KittenPreload> {
-  applyProgress(0, 43 * 1024 * 1024, 'downloading')
+  applyProgress(0, ENGINE_BYTES.kitten, 'downloading')
 
   const result = await downloadKittenModel(KITTEN_MODEL_ID, (progress) => {
     applyProgress(progress.loaded, progress.total, progress.status)
@@ -202,155 +283,258 @@ async function downloadKittenOnMainThread(): Promise<KittenPreload> {
   }
 }
 
-async function startWorkerLoad(
+async function downloadPiperOnMainThread(voiceId: string): Promise<PiperPreload> {
+  applyProgress(0, ENGINE_BYTES.piper, 'downloading')
+  const voiceWeight = 0.4
+
+  return downloadPiperVoice(voiceId, (loaded, total) => {
+    const safeTotal = total > 0 ? total : ENGINE_BYTES.piper
+    const scaledLoaded = Math.round((loaded / safeTotal) * ENGINE_BYTES.piper * voiceWeight)
+    const scaledTotal = ENGINE_BYTES.piper
+    applyProgress(
+      scaledLoaded,
+      scaledTotal,
+      loaded >= safeTotal ? 'downloading' : 'downloading',
+    )
+  })
+}
+
+function kittenBuffersUsable(preload: KittenPreload): boolean {
+  return preload.modelBuffer.byteLength > 0 && preload.voicesBuffer.byteLength > 0
+}
+
+async function startSlotLoad(
   engineType: TtsEngineType,
-  preload?: KittenPreload,
+  options?: {
+    kittenPreload?: KittenPreload
+    piperPreload?: PiperPreload
+    skipWarmup?: boolean
+  },
 ): Promise<void> {
   const message: WorkerLoadMessage = { type: 'load', engineType }
   const transfer: Transferable[] = []
 
-  if (engineType === 'kitten' && preload) {
-    message.kittenPreload = preload
-    transfer.push(preload.modelBuffer, preload.voicesBuffer)
+  if (engineType === 'kitten' && options?.kittenPreload) {
+    const modelCopy = options.kittenPreload.modelBuffer.slice(0)
+    const voicesCopy = options.kittenPreload.voicesBuffer.slice(0)
+    message.kittenPreload = {
+      modelBuffer: modelCopy,
+      voicesBuffer: voicesCopy,
+      config: options.kittenPreload.config,
+    }
+    transfer.push(modelCopy, voicesCopy)
   }
 
-  ensureWorker().postMessage(message, transfer)
+  if (engineType === 'piper' && options?.piperPreload) {
+    const onnxCopy = options.piperPreload.onnxBuffer.slice(0)
+    message.piperPreload = {
+      ...options.piperPreload,
+      onnxBuffer: onnxCopy,
+    }
+    message.skipWarmup = options.skipWarmup
+    transfer.push(onnxCopy)
+  }
+
+  getSlot(engineType).worker.postMessage(message, transfer)
 }
 
-export async function preloadEngine(engineType: TtsEngineType = 'kitten'): Promise<void> {
-  const store = getStore()
-  if (store.isModelReady && loadedEngine === engineType) return
-  if (loadInFlight === engineType) return
+export function getLoadingEngine(): TtsEngineType | null {
+  return loadInFlight
+}
 
-  loadInFlight = engineType
-  usePlayerStore.setState({ modelFromCache: false, modelError: null })
-  store.setEngine(engineType)
-  applyProgress(0, 43 * 1024 * 1024, 'downloading')
+const engineLoadPromises = new Map<TtsEngineType, Promise<void>>()
+
+export async function switchEngine(engineType: TtsEngineType): Promise<void> {
+  const slot = getSlot(engineType)
+
+  if (
+    activeEngine === engineType &&
+    slot.loaded &&
+    loadedEngine === engineType &&
+    getStore().isModelReady
+  ) {
+    return
+  }
+
+  const existing = engineLoadPromises.get(engineType)
+  if (existing) {
+    activeEngine = engineType
+    savePreferences({ engine: engineType })
+    await existing
+    return
+  }
+
+  const work = switchEngineWork(engineType)
+  engineLoadPromises.set(engineType, work)
+  try {
+    await work
+  } finally {
+    engineLoadPromises.delete(engineType)
+  }
+}
+
+async function switchEngineWork(engineType: TtsEngineType): Promise<void> {
+  const slot = getSlot(engineType)
+
+  const startingCold = !slot.loaded && !slot.loading
+  if (startingCold) {
+    slot.loading = true
+    loadInFlight = engineType
+  }
+
+  const token = ++switchToken
+  stopTtsStream()
+
+  activeEngine = engineType
+  savePreferences({ engine: engineType })
+
+  if (slot.loaded) {
+    if (loadedEngine === engineType && getStore().isModelReady) {
+      return
+    }
+    loadedEngine = engineType
+    loadInFlight = null
+    usePlayerStore.setState({
+      isModelReady: false,
+      isModelLoading: false,
+      modelError: null,
+      modelFromCache: true,
+      modelProgress: 100,
+      engine: engineType,
+      voice: getPreferredVoice(engineType),
+      voices: [],
+    })
+    slot.worker.postMessage({ type: 'listVoices' })
+    return
+  }
+
+  if (slot.loading && !startingCold) {
+    return
+  }
+  loadedEngine = null
+
+  usePlayerStore.setState({
+    isModelReady: false,
+    isModelLoading: true,
+    modelError: null,
+    modelFromCache: false,
+    modelProgress: 0,
+    engine: engineType,
+    voice: getPreferredVoice(engineType),
+    voices: [],
+  })
+  applyProgress(0, ENGINE_BYTES[engineType], 'downloading')
 
   try {
     if (engineType === 'kitten') {
-      kittenPreload = await downloadKittenOnMainThread()
-      await startWorkerLoad(engineType, kittenPreload)
+      if (!kittenPreload || !kittenBuffersUsable(kittenPreload)) {
+        kittenPreload = await downloadKittenOnMainThread()
+      } else {
+        usePlayerStore.setState({ modelFromCache: true })
+        applyProgress(ENGINE_BYTES.kitten, ENGINE_BYTES.kitten, 'cached')
+      }
+      if (token !== switchToken) {
+        if (startingCold) slot.loading = false
+        return
+      }
+      await startSlotLoad(engineType, { kittenPreload })
       return
     }
 
-    await startWorkerLoad(engineType)
+    if (engineType === 'piper') {
+      const voiceId = getPreferredVoice('piper') || PIPER_DEFAULT_VOICE
+      const cached = getCachedPiperPreload(voiceId)
+      const voiceReadyBytes = Math.floor(ENGINE_BYTES.piper * 0.4)
+      if (cached) {
+        usePlayerStore.setState({ modelFromCache: true })
+        applyProgress(voiceReadyBytes, ENGINE_BYTES.piper, 'cached')
+      }
+      const piperPreload = cached ?? (await downloadPiperOnMainThread(voiceId))
+      if (token !== switchToken) {
+        if (startingCold) slot.loading = false
+        return
+      }
+      applyProgress(voiceReadyBytes, ENGINE_BYTES.piper, 'downloading')
+      await startSlotLoad(engineType, {
+        piperPreload,
+        skipWarmup: true,
+      })
+      return
+    }
+
+    if (sessionEnginesLoaded.has(engineType)) {
+      usePlayerStore.setState({ modelFromCache: true })
+      applyProgress(ENGINE_BYTES[engineType], ENGINE_BYTES[engineType], 'cached')
+    }
+
+    if (token !== switchToken) {
+      if (startingCold) slot.loading = false
+      return
+    }
+    await startSlotLoad(engineType)
   } catch (err) {
+    if (token !== switchToken) {
+      if (startingCold) slot.loading = false
+      return
+    }
+    slot.loading = false
     applyError(err instanceof Error ? err.message : 'Failed to download voice model')
   }
 }
 
-export function reloadEngine(engineType: TtsEngineType): void {
-  stopTtsStream()
-  loadedEngine = null
-  loadInFlight = null
-  kittenPreload = null
-  usePlayerStore.setState({ isModelReady: false, modelFromCache: false, modelError: null })
-  void preloadEngine(engineType)
-}
+/** @deprecated Use switchEngine */
+export const preloadEngine = switchEngine
+
+/** @deprecated Use switchEngine */
+export const reloadEngine = switchEngine
 
 export function isEngineReady(engineType?: TtsEngineType): boolean {
   const store = getStore()
+  const target = engineType ?? store.engine
+  const slot = slots.get(target)
+  if (slot?.loaded && loadedEngine === target) {
+    return true
+  }
   if (!store.isModelReady) return false
   if (engineType && loadedEngine !== engineType) return false
   return true
 }
 
+export function prefetchSynthTexts(texts: string[]): void {
+  const store = getStore()
+  if (!loadedEngine || !store.isModelReady) return
+
+  const worker = getActiveWorker()
+  if (!worker) return
+
+  const voice = resolveVoiceForEngine(store.voices, store.engine, store.voice)
+  const speed = store.speed
+  const engine = store.engine
+
+  for (const text of texts) {
+    const trimmed = text?.trim()
+    if (!trimmed) continue
+    const key = synthCacheKey(engine, voice, speed, trimmed)
+    if (synthCache.has(key) || prefetchInFlight.has(key)) continue
+    prefetchInFlight.add(key)
+    worker.postMessage({
+      type: 'prefetch',
+      text: trimmed,
+      voice,
+      speed,
+      prefetchId: ++prefetchId,
+    })
+  }
+}
+
 export function stopTtsStream(): void {
   currentStreamId++
   streamContext = null
+  prefetchInFlight.clear()
+  const worker = getActiveWorker()
   if (worker) {
     worker.postMessage({ type: 'stop' })
   }
-}
-
-export function clearPrefetchCache(): void {
-  prefetchCache.clear()
-  pendingPrefetches.clear()
-  prefetchWaiters.clear()
-}
-
-export function hasPrefetchedSentence(
-  sentenceIndex: number,
-  text: string,
-  voice: string,
-  speed: number,
-): boolean {
-  return prefetchCache.has(prefetchCacheKey(sentenceIndex, text, voice, speed))
-}
-
-function isPrefetchPending(
-  sentenceIndex: number,
-  voice: string,
-  speed: number,
-): boolean {
-  for (const pending of pendingPrefetches.values()) {
-    if (
-      pending.sentenceIndex === sentenceIndex &&
-      pending.voice === voice &&
-      pending.speed === speed
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
-export function waitForPrefetch(
-  sentenceIndex: number,
-  text: string,
-  voice: string,
-  speed: number,
-  timeoutMs = 12000,
-): Promise<boolean> {
-  const key = prefetchCacheKey(sentenceIndex, text, voice, speed)
-  if (prefetchCache.has(key)) return Promise.resolve(true)
-
-  if (!isPrefetchPending(sentenceIndex, voice, speed)) {
-    prefetchSentence(sentenceIndex, text, voice, speed)
-  }
-
-  return new Promise((resolve) => {
-    const finish = (hit: boolean) => {
-      resolve(hit)
-    }
-
-    const timer = setTimeout(() => finish(prefetchCache.has(key)), timeoutMs)
-    const onReady = () => {
-      clearTimeout(timer)
-      finish(true)
-    }
-
-    const waiters = prefetchWaiters.get(key) ?? []
-    waiters.push(onReady)
-    prefetchWaiters.set(key, waiters)
-  })
-}
-
-export function prefetchSentence(
-  sentenceIndex: number,
-  text: string,
-  voice: string,
-  speed: number,
-): void {
-  if (!isEngineReady() || !text.trim()) return
-  ensureWorker()
-
-  const key = prefetchCacheKey(sentenceIndex, text, voice, speed)
-  if (prefetchCache.has(key)) return
-
-  if (isPrefetchPending(sentenceIndex, voice, speed)) return
-
-  const id = ++prefetchId
-  pendingPrefetches.set(id, { sentenceIndex, voice, speed })
-  worker.postMessage({
-    type: 'prefetch',
-    text,
-    voice,
-    speed,
-    prefetchId: id,
-    sentenceIndex,
-  })
 }
 
 export async function startTtsStream(
@@ -360,12 +544,11 @@ export async function startTtsStream(
   speed: number,
   onChunk: ChunkHandler,
 ): Promise<void> {
-  const startText = chunks[startIndex]
-  if (startText) {
-    const cacheKey = prefetchCacheKey(startIndex, startText, voice, speed)
-    if (!prefetchCache.has(cacheKey)) {
-      await waitForPrefetch(startIndex, startText, voice, speed)
-    }
+  const store = getStore()
+  const resolvedVoice = resolveVoiceForEngine(store.voices, store.engine, voice)
+  if (resolvedVoice !== voice) {
+    store.setVoice(resolvedVoice)
+    voice = resolvedVoice
   }
 
   stopTtsStream()
@@ -373,12 +556,17 @@ export async function startTtsStream(
   const streamId = currentStreamId
   onChunkRef = onChunk
 
+  if (startIndex >= chunks.length) {
+    streamContext = null
+    return
+  }
+
+  const engine = store.engine
   let nextIndex = startIndex
-  if (startText) {
-    const cacheKey = prefetchCacheKey(startIndex, startText, voice, speed)
-    const cached = prefetchCache.get(cacheKey)
+  const startText = chunks[startIndex]
+  if (startText?.trim() && loadedEngine) {
+    const cached = synthCache.get(synthCacheKey(engine, voice, speed, startText))
     if (cached) {
-      prefetchCache.delete(cacheKey)
       await onChunk({
         text: cached.text,
         pcm: cached.pcm,
@@ -394,6 +582,13 @@ export async function startTtsStream(
     return
   }
 
-  streamContext = { chunks, voice, speed, nextIndex, streamId }
+  streamContext = {
+    chunks,
+    voice,
+    speed,
+    nextIndex,
+    streamId,
+    windowSize: FIRST_STREAM_WINDOW,
+  }
   postStreamWindow()
 }

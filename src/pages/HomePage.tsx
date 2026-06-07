@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { ChevronRight, FileText } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { DropZone } from '@/components/upload/DropZone'
 import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
 import { Progress } from '@/components/ui/progress'
-import { preloadEngine } from '@/lib/tts/ttsWorkerManager'
-import { getRecentDocuments, getProgress, type DocumentRecord } from '@/lib/db/index'
+import { applyPreferencesToStore, loadPreferences } from '@/lib/preferences'
+import { switchEngine } from '@/lib/tts/ttsWorkerManager'
+import { getMetadata, getRecentDocuments, getProgress, type DocumentRecord } from '@/lib/db/index'
 
 function formatRelativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp
@@ -18,39 +19,47 @@ function formatRelativeTime(timestamp: number): string {
   return `${days}d ago`
 }
 
-function DocRow({ doc }: { doc: DocumentRecord & { progressPct?: number } }) {
+function formatPageCount(totalPages?: number): string {
+  if (!totalPages) return 'PDF'
+  return `${totalPages} ${totalPages === 1 ? 'page' : 'pages'}`
+}
+
+function DocCard({ doc }: { doc: DocumentRecord & { progressPct?: number; totalPages?: number } }) {
   const hasProgress = doc.progressPct !== undefined && doc.progressPct > 0
 
   return (
     <Link
       to={`/read/${doc.docId}`}
-      className="group flex items-center gap-4 rounded-xl px-3 py-3 transition-smooth hover:bg-accent"
+      className="flex min-h-[4.5rem] flex-col rounded-xl border border-border bg-card p-4 transition-smooth active:scale-[0.99] hover:border-primary/40"
     >
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-smooth group-hover:bg-primary/10 group-hover:text-primary">
-        <FileText className="size-[18px]" strokeWidth={2} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-foreground">{doc.name}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          {formatRelativeTime(doc.createdAt)}
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <FileText className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm font-medium text-foreground">{doc.name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {formatPageCount(doc.totalPages)} · {formatRelativeTime(doc.createdAt)}
+            {hasProgress && (
+              <span className="tabular-nums"> · {doc.progressPct}%</span>
+            )}
+          </p>
           {hasProgress && (
-            <span className="tabular-nums"> · {doc.progressPct}%</span>
+            <Progress value={doc.progressPct} className="mt-2.5 h-1" />
           )}
-        </p>
-        {hasProgress && (
-          <Progress value={doc.progressPct} className="mt-2.5 h-0.5" />
-        )}
+        </div>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50 transition-smooth group-hover:text-muted-foreground" />
     </Link>
   )
 }
 
 export function HomePage() {
-  const [docs, setDocs] = useState<Array<DocumentRecord & { progressPct?: number }>>([])
+  const [docs, setDocs] = useState<Array<DocumentRecord & { progressPct?: number; totalPages?: number }>>([])
 
   useEffect(() => {
-    void preloadEngine('kitten')
+    applyPreferencesToStore()
+    const prefs = loadPreferences()
+    void switchEngine(prefs.engine)
   }, [])
 
   useEffect(() => {
@@ -59,10 +68,14 @@ export function HomePage() {
         const recent = await getRecentDocuments()
         const withProgress = await Promise.all(
           recent.map(async (doc) => {
-            const progress = await getProgress(doc.docId)
+            const [progress, metadata] = await Promise.all([
+              getProgress(doc.docId),
+              getMetadata(doc.docId),
+            ])
             return {
               ...doc,
               progressPct: progress ? Math.min(100, progress.sentenceIndex * 2) : 0,
+              totalPages: metadata?.totalPages,
             }
           }),
         )
@@ -74,41 +87,41 @@ export function HomePage() {
   }, [])
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-xl px-5 py-10 sm:px-8 sm:py-12">
-        <header className="mb-8">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-[1.75rem]">
-            Library
+    <div className="home-hero flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-2xl px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-12">
+        <div className="text-center sm:text-left">
+          <p className="text-xs font-medium uppercase tracking-wider text-primary">Private · Offline-ready</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            Turn PDFs into audiobooks
           </h1>
-          <p className="mt-2 text-base text-muted-foreground">
-            Upload a PDF and listen with synced highlighting. Everything stays on your device.
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground sm:mx-0 sm:text-base">
+            Upload a document, choose a voice engine, and listen with word-by-word highlighting.
           </p>
-        </header>
+        </div>
 
-        <ModelDownloadBanner className="mb-6" />
+        <section className="mt-6">
+          <h2 className="mb-3 text-sm font-medium text-foreground">Voice engine</h2>
+          <ModelDownloadBanner />
+        </section>
 
-        <DropZone />
+        <section className="mt-5">
+          <DropZone />
+        </section>
 
-        <section className="mt-12">
-          <div className="mb-2 flex items-baseline justify-between px-3">
-            <h2 className="text-sm font-medium text-muted-foreground">Recent</h2>
-            {docs.length > 0 && (
-              <span className="text-sm text-muted-foreground">{docs.length}</span>
-            )}
-          </div>
-
-          {docs.length === 0 ? (
-            <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-              No documents yet. Add a PDF to get started.
-            </p>
-          ) : (
-            <div className="divide-y divide-border/60">
+        {docs.length > 0 ? (
+          <section className="mt-8">
+            <h2 className="text-sm font-medium text-muted-foreground">Continue reading</h2>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {docs.map((doc) => (
-                <DocRow key={doc.docId} doc={doc} />
+                <DocCard key={doc.docId} doc={doc} />
               ))}
             </div>
-          )}
-        </section>
+          </section>
+        ) : (
+          <p className="mt-8 rounded-xl border border-dashed border-border bg-card/50 px-4 py-8 text-center text-sm text-muted-foreground">
+            No documents yet — upload a PDF above to get started.
+          </p>
+        )}
       </div>
     </div>
   )

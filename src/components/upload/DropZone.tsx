@@ -5,7 +5,11 @@ import { toast } from 'sonner'
 import { saveDocument } from '@/lib/db/index'
 import { cn } from '@/lib/utils'
 
-export function DropZone() {
+interface DropZoneProps {
+  className?: string
+}
+
+export function DropZone({ className }: DropZoneProps) {
   const navigate = useNavigate()
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -54,11 +58,12 @@ export function DropZone() {
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
       className={cn(
-        'block cursor-pointer rounded-2xl border bg-card transition-smooth',
+        'block cursor-pointer rounded-lg border bg-card transition-smooth focus-within:ring-2 focus-within:ring-ring',
         isDragging
-          ? 'border-primary/40 bg-primary/[0.03]'
-          : 'border-border hover:border-primary/25 hover:bg-accent/40',
+          ? 'border-primary bg-background'
+          : 'border-border hover:border-primary/50',
         isUploading && 'pointer-events-none opacity-70',
+        className,
       )}
     >
       <input
@@ -75,47 +80,34 @@ export function DropZone() {
         }}
       />
 
-      <div className="flex items-center gap-5 px-6 py-5 sm:px-7 sm:py-6">
+      <div className="flex min-h-[4.5rem] items-center gap-4 px-4 py-5 sm:px-5 sm:py-6">
         <div
           className={cn(
-            'flex size-12 shrink-0 items-center justify-center rounded-xl transition-smooth',
+            'flex size-10 shrink-0 items-center justify-center rounded-md',
             isDragging || isUploading
               ? 'bg-primary text-primary-foreground'
               : 'bg-muted text-muted-foreground',
           )}
         >
           {isUploading ? (
-            <Loader2 className="size-5 animate-spin" />
+            <Loader2 className="size-4 animate-spin" />
           ) : (
-            <FileText className="size-5" strokeWidth={2} />
+            <FileText className="size-4" />
           )}
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-medium text-foreground">
+          <p className="text-sm font-medium text-foreground">
             {isUploading
               ? 'Opening PDF…'
               : isDragging
                 ? 'Drop to open'
-                : 'Add a PDF to your library'}
+                : 'Upload a PDF'}
           </p>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {isUploading
-              ? 'Extracting text for playback'
-              : 'Drag and drop, or click to choose a file'}
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Drag and drop, or click to choose a file
           </p>
         </div>
-
-        <span
-          className={cn(
-            'hidden shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition-smooth sm:inline-flex',
-            isUploading
-              ? 'bg-muted text-muted-foreground'
-              : 'bg-primary text-primary-foreground',
-          )}
-        >
-          {isUploading ? 'Loading' : 'Choose file'}
-        </span>
       </div>
     </label>
   )

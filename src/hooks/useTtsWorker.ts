@@ -1,24 +1,21 @@
 import { useCallback } from 'react'
 import {
-  clearPrefetchCache,
   isEngineReady,
-  prefetchSentence,
-  preloadEngine,
-  reloadEngine,
+  switchEngine as switchEngineImpl,
   startTtsStream,
   stopTtsStream,
+  prefetchSynthTexts,
 } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import type { TtsEngineType } from '@/lib/types'
 
 export function useTtsWorker() {
   const loadEngine = useCallback((engineType: TtsEngineType) => {
-    if (isEngineReady(engineType)) return
-    preloadEngine(engineType)
+    void switchEngineImpl(engineType)
   }, [])
 
   const switchEngine = useCallback((engineType: TtsEngineType) => {
-    reloadEngine(engineType)
+    void switchEngineImpl(engineType)
   }, [])
 
   const stopStream = useCallback(() => {
@@ -42,13 +39,8 @@ export function useTtsWorker() {
     [],
   )
 
-  const prefetch = useCallback((sentenceIndex: number, text: string) => {
-    const { voice, speed } = usePlayerStore.getState()
-    prefetchSentence(sentenceIndex, text, voice, speed)
-  }, [])
-
-  const invalidatePrefetch = useCallback(() => {
-    clearPrefetchCache()
+  const prefetchSynth = useCallback((texts: string[]) => {
+    prefetchSynthTexts(texts)
   }, [])
 
   return {
@@ -56,8 +48,7 @@ export function useTtsWorker() {
     switchEngine,
     startStream,
     stopStream,
-    prefetch,
-    invalidatePrefetch,
+    prefetchSynth,
     isEngineReady,
   }
 }

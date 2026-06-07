@@ -16,11 +16,12 @@ export interface SentenceInfo {
   pageNum: number
 }
 
-export type TtsEngineType = 'kitten' | 'kokoro' | 'piper'
+export type TtsEngineType = 'kitten' | 'piper'
 
 export interface VoiceInfo {
   id: string
   label: string
+  recommended?: boolean
 }
 
 export type ProgressCallback = (progress: {

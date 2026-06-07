@@ -13,6 +13,7 @@ export class PiperEngine implements TtsEngine {
     return []
   }
 
+  // eslint-disable-next-line require-yield -- stub throws before yielding; signature must remain a generator
   async *stream(): AsyncIterable<TtsStreamChunk> {
     throw new Error(MSG)
   }

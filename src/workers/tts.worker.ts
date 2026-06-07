@@ -1,11 +1,19 @@
 import type { TtsEngine } from '@/lib/tts/engine'
+import type { PiperEngine } from '@/lib/tts/piperEngine'
+import type { PiperPreload } from '@/lib/tts/piperDownload'
 import type { TtsEngineType } from '@/lib/types'
-import type { KittenPreload } from '@/lib/tts/kittenEngine'
+import type { KittenEngine, KittenPreload } from '@/lib/tts/kittenEngine'
 
-const DEFAULT_WINDOW_SIZE = 5
+const DEFAULT_WINDOW_SIZE = 3
 
 type WorkerMessage =
-  | { type: 'load'; engineType: TtsEngineType; kittenPreload?: KittenPreload }
+  | {
+      type: 'load'
+      engineType: TtsEngineType
+      kittenPreload?: KittenPreload
+      piperPreload?: PiperPreload
+      skipWarmup?: boolean
+    }
   | {
       type: 'stream'
       chunks: string[]
@@ -17,14 +25,7 @@ type WorkerMessage =
     }
   | { type: 'stop' }
   | { type: 'listVoices' }
-  | {
-      type: 'prefetch'
-      text: string
-      voice: string
-      speed: number
-      prefetchId: number
-      sentenceIndex: number
-    }
+  | { type: 'prefetch'; text: string; voice: string; speed: number; prefetchId: number }
 
 type WorkerResponse =
   | { type: 'progress'; loaded: number; total: number; status?: string }
@@ -40,12 +41,9 @@ type WorkerResponse =
   | { type: 'ready' }
   | { type: 'done'; streamId: number; nextIndex: number }
   | {
-      type: 'prefetchReady'
+      type: 'prefetchChunk'
       prefetchId: number
-      sentenceIndex: number
       text: string
-      voice: string
-      speed: number
       pcm: Float32Array
       sampleRate: number
     }
@@ -53,6 +51,8 @@ type WorkerResponse =
 
 let engine: TtsEngine | null = null
 let streaming = false
+let activeStreamId = 0
+let streamEpoch = 0
 let synthChain: Promise<void> = Promise.resolve()
 
 function runSynthExclusive<T>(fn: () => Promise<T>): Promise<T> {
@@ -66,10 +66,6 @@ function runSynthExclusive<T>(fn: () => Promise<T>): Promise<T> {
 
 async function createEngine(type: TtsEngineType): Promise<TtsEngine> {
   switch (type) {
-    case 'kokoro': {
-      const { KokoroEngine } = await import('@/lib/tts/kokoroEngine')
-      return new KokoroEngine()
-    }
     case 'piper': {
       const { PiperEngine } = await import('@/lib/tts/engines/piper')
       return new PiperEngine()
@@ -95,29 +91,48 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
 
   if (msg.type === 'stop') {
     streaming = false
+    activeStreamId = 0
+    streamEpoch++
     return
   }
 
-  const run = msg.type === 'prefetch' || msg.type === 'stream'
-    ? runSynthExclusive
-    : <T>(fn: () => Promise<T>) => fn()
+  if (msg.type === 'stream') {
+    streamEpoch++
+  }
+
+  const run =
+    msg.type === 'stream' || msg.type === 'prefetch'
+      ? runSynthExclusive
+      : <T>(fn: () => Promise<T>) => fn()
 
   void run(async () => {
   try {
     if (msg.type === 'load') {
+      post({ type: 'progress', loaded: 5, total: 100, status: 'downloading' })
       engine = await createEngine(msg.engineType)
+      post({ type: 'progress', loaded: 25, total: 100, status: 'downloading' })
 
       if (msg.engineType === 'kitten') {
         if (!msg.kittenPreload) {
           post({ type: 'error', message: 'Kitten model buffers missing — reload from Home page' })
           return
         }
-        const { KittenEngine } = await import('@/lib/tts/kittenEngine')
-        await (engine as InstanceType<typeof KittenEngine>).load(
+        await (engine as KittenEngine).load(
           (progress) => {
             post({ type: 'progress', ...progress, status: progress.status ?? 'downloading' })
           },
           msg.kittenPreload,
+        )
+      } else if (msg.engineType === 'piper') {
+        if (!msg.piperPreload) {
+          post({ type: 'error', message: 'Piper voice buffers missing — reload from Home page' })
+          return
+        }
+        await (engine as PiperEngine).load(
+          (progress) => {
+            post({ type: 'progress', ...progress, status: progress.status ?? 'downloading' })
+          },
+          { preload: msg.piperPreload, skipWarmup: msg.skipWarmup },
         )
       } else {
         await engine.load((progress) => {
@@ -138,32 +153,27 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
     }
 
     if (msg.type === 'prefetch') {
-      if (!engine) {
-        post({ type: 'error', message: 'Prefetch failed: engine not loaded' })
-        return
-      }
+      const epoch = streamEpoch
+      if (!engine || streaming || !msg.text.trim() || epoch !== streamEpoch) return
 
-      const stream = engine.stream([msg.text], { voice: msg.voice, speed: msg.speed })
-      const first = await stream.next()
-      if (first.done || !first.value) {
-        post({ type: 'error', message: 'Prefetch failed: empty synthesis result' })
-        return
+      for await (const chunk of engine.stream([msg.text], {
+        voice: msg.voice,
+        speed: msg.speed,
+      })) {
+        if (streaming || epoch !== streamEpoch) break
+        const pcm = chunk.pcm
+        post(
+          {
+            type: 'prefetchChunk',
+            prefetchId: msg.prefetchId,
+            text: chunk.text,
+            pcm,
+            sampleRate: chunk.sampleRate,
+          },
+          [pcm.buffer],
+        )
+        break
       }
-
-      const pcm = first.value.pcm
-      post(
-        {
-          type: 'prefetchReady',
-          prefetchId: msg.prefetchId,
-          sentenceIndex: msg.sentenceIndex,
-          text: msg.text,
-          voice: msg.voice,
-          speed: msg.speed,
-          pcm,
-          sampleRate: first.value.sampleRate,
-        },
-        [pcm.buffer],
-      )
       return
     }
 
@@ -173,8 +183,10 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
         return
       }
 
-      streaming = false
+      const streamId = msg.streamId
+      const epoch = streamEpoch
       streaming = true
+      activeStreamId = streamId
 
       const windowSize = msg.windowSize ?? DEFAULT_WINDOW_SIZE
       const endIndex = Math.min(msg.startIndex + windowSize, msg.chunks.length)
@@ -185,7 +197,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
         voice: msg.voice,
         speed: msg.speed,
       })) {
-        if (!streaming) break
+        if (!streaming || activeStreamId !== streamId || epoch !== streamEpoch) break
         const pcm = chunk.pcm
         post(
           {
@@ -194,15 +206,15 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
             pcm,
             sampleRate: chunk.sampleRate,
             sentenceIndex: index,
-            streamId: msg.streamId,
+            streamId,
           },
           [pcm.buffer],
         )
         index++
       }
 
-      if (streaming) {
-        post({ type: 'done', streamId: msg.streamId, nextIndex: index })
+      if (streaming && activeStreamId === streamId && epoch === streamEpoch) {
+        post({ type: 'done', streamId, nextIndex: index })
       }
     }
   } catch (err) {

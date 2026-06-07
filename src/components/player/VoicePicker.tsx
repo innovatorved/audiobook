@@ -1,3 +1,4 @@
+import { RecommendedBadge } from '@/components/player/RecommendedBadge'
 import {
   Select,
   SelectContent,
@@ -16,15 +17,31 @@ interface VoicePickerProps {
 }
 
 export function VoicePicker({ voices, value, onChange, className }: VoicePickerProps) {
+  const sorted = [...voices].sort((a, b) => {
+    if (a.recommended === b.recommended) return a.label.localeCompare(b.label)
+    return a.recommended ? -1 : 1
+  })
+  const selected = voices.find((v) => v.id === value)
+
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger className={cn('w-full', className)}>
-        <SelectValue placeholder="Select voice" />
+        <SelectValue placeholder="Select voice">
+          {selected && (
+            <span className="flex items-center gap-2">
+              <span>{selected.label}</span>
+              {selected.recommended && <RecommendedBadge />}
+            </span>
+          )}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
-        {voices.map((v) => (
+        {sorted.map((v) => (
           <SelectItem key={v.id} value={v.id}>
-            {v.label}
+            <span className="flex items-center gap-2">
+              <span>{v.label}</span>
+              {v.recommended && <RecommendedBadge />}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>

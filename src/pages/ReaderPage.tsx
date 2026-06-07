@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PdfScrollerHandle } from '@/components/pdf/PdfScroller'
 import { useParams } from 'react-router'
 import { toast } from 'sonner'
 import { TopBar } from '@/components/layout/TopBar'
 import { PdfScroller } from '@/components/pdf/PdfScroller'
+import { ReaderReturnBanner } from '@/components/pdf/ReaderReturnBanner'
 import { PlayerBar } from '@/components/player/PlayerBar'
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -13,12 +15,20 @@ import { clearPageCanvasCache } from '@/lib/pdf/pageCanvasCache'
 import { findContentStartSentence } from '@/lib/pdf/findContentStart'
 import { buildWordMap } from '@/lib/pipeline/wordMap'
 import { getDocument, getMetadata, saveMetadata } from '@/lib/db/index'
+import {
+  getPreferredVoice,
+  loadPreferences,
+  rememberVoiceForEngine,
+  sanitizeVoiceForEngine,
+  savePreferences,
+} from '@/lib/preferences'
 import { audioScheduler } from '@/lib/audio/scheduler'
 import { highlightSync } from '@/lib/audio/highlightSync'
 import { useReaderStore } from '@/stores/readerStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useTtsWorker } from '@/hooks/useTtsWorker'
-import { preloadEngine } from '@/lib/tts/ttsWorkerManager'
+import { findClickTargetAtPoint } from '@/lib/pdf/findWordAtPoint'
+import { clearSynthCache, isEngineReady, switchEngine as switchEngineDirect } from '@/lib/tts/ttsWorkerManager'
 import { useOcrPrefetch } from '@/hooks/useOcrPrefetch'
 import { useReadingProgress } from '@/hooks/useReadingProgress'
 import type { TtsEngineType } from '@/lib/types'
@@ -38,10 +48,16 @@ export function ReaderPage() {
   const [visiblePage, setVisiblePage] = useState(1)
   const [initialPage, setInitialPage] = useState<number | undefined>(undefined)
   const [followResetKey, setFollowResetKey] = useState(0)
+  const [userNavigatedAway, setUserNavigatedAway] = useState(false)
   const streamingRef = useRef(false)
   const playbackGenRef = useRef(0)
   const streamGenRef = useRef(0)
   const streamStartWordRef = useRef<{ sentenceIndex: number; wordIndex: number } | null>(null)
+  const seekCoalesceRef = useRef<{
+    index: number
+    autoPlay: boolean
+    wordIndex?: number
+  } | null>(null)
   const savedProgressRef = useRef<{
     wordIndex: number
     pageNum: number
@@ -49,6 +65,11 @@ export function ReaderPage() {
   } | null>(null)
   const progressAppliedRef = useRef(false)
   const ocrPrefetchSeededRef = useRef(false)
+  const lastDocIdRef = useRef<string | undefined>(undefined)
+  const pdfScrollerRef = useRef<PdfScrollerHandle | null>(null)
+  const userSeekInProgressRef = useRef(false)
+  const pendingClickRef = useRef<{ index: number; wordIndex?: number } | null>(null)
+  const pendingPageClickRef = useRef<{ pageNum: number; x: number; y: number } | null>(null)
 
   const {
     docName,
@@ -86,9 +107,8 @@ export function ReaderPage() {
     reset: resetPlayer,
   } = usePlayerStore()
 
-  const { loadEngine, switchEngine, startStream, stopStream, prefetch, invalidatePrefetch } =
-    useTtsWorker()
-  const { prefetchAround } = useOcrPrefetch()
+  const { loadEngine, switchEngine, startStream, stopStream, prefetchSynth } = useTtsWorker()
+  const { prefetchAround, ocrPage } = useOcrPrefetch()
   const { persist, restoreProgress } = useReadingProgress()
 
   const activeWord = words.find((w) => w.globalIndex === activeWordIndex) ?? null
@@ -146,11 +166,14 @@ export function ReaderPage() {
     resetReader()
     resetPlayer()
     clearPageCanvasCache()
-    setIsLoading(true)
+    if (lastDocIdRef.current !== docId) {
+      lastDocIdRef.current = docId
+      setIsLoading(true)
+      setInitialPage(undefined)
+    }
     progressAppliedRef.current = false
     ocrPrefetchSeededRef.current = false
     savedProgressRef.current = null
-    setInitialPage(undefined)
 
     void (async () => {
       try {
@@ -164,15 +187,22 @@ export function ReaderPage() {
 
         setDocument(docId, doc.name, pdf)
 
-        const scanned = await isScannedPdf(pdf)
-        setScanned(scanned)
-
+        const prefs = loadPreferences()
+        const activeEngine = prefs.engine
         const metadata = await getMetadata(docId)
         if (metadata) {
+          const safeVoice = sanitizeVoiceForEngine(metadata.voice, activeEngine)
+          rememberVoiceForEngine(activeEngine, safeVoice)
           usePlayerStore.setState({
-            voice: metadata.voice,
-            speed: metadata.speed,
-            engine: metadata.engine,
+            voice: safeVoice,
+            speed: metadata.speed ?? prefs.speed,
+            engine: activeEngine,
+          })
+        } else {
+          usePlayerStore.setState({
+            engine: activeEngine,
+            voice: prefs.voiceByEngine[activeEngine] ?? getPreferredVoice(activeEngine),
+            speed: prefs.speed,
           })
         }
 
@@ -185,13 +215,18 @@ export function ReaderPage() {
           }
         }
 
+        setExtracting(true, 0)
+        const rawWords = await extractAllDigitalWords(pdf)
+        const pagesWithText = new Set(rawWords.map((w) => w.pageNum)).size
+        const heuristicScanned = await isScannedPdf(pdf)
+        const scanned = rawWords.length === 0 && heuristicScanned
+        setScanned(scanned)
+
         if (scanned) {
           toast.info('Scanned PDF detected — OCR may be slower')
           setExtracting(true, 0)
         } else {
-          setExtracting(true, 0)
-          const rawWords = await extractAllDigitalWords(pdf)
-          const { words: mapped, sentences: sents, fullText: _ft } = buildWordMap(rawWords)
+          const { words: mapped, sentences: sents } = buildWordMap(rawWords)
           const texts = sents.map((s) => s.text)
           setWords(mapped, sents, texts)
           setTotalSentences(texts.length)
@@ -204,7 +239,9 @@ export function ReaderPage() {
           }
         }
 
-        loadEngine(metadata?.engine ?? engine ?? 'kitten')
+        if (!isEngineReady(activeEngine)) {
+          loadEngine(activeEngine)
+        }
         setIsLoading(false)
       } catch {
         toast.error('Failed to load document')
@@ -218,6 +255,9 @@ export function ReaderPage() {
       audioScheduler.clear()
       highlightSync.clear()
     }
+    // Intentionally only re-runs when docId changes; store setters and helpers
+    // are stable callbacks bound to this component scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId])
 
   useEffect(() => {
@@ -247,6 +287,24 @@ export function ReaderPage() {
   }, [sentenceTexts.length, setTotalSentences])
 
   useEffect(() => {
+    if (!isModelReady || isPlaying || words.length === 0 || sentenceTexts.length === 0) return
+    const timer = window.setTimeout(() => {
+      const indices = [
+        ...new Set(words.filter((w) => w.pageNum === visiblePage).map((w) => w.sentenceIndex)),
+      ]
+        .sort((a, b) => a - b)
+        .slice(0, 3)
+      const texts = indices
+        .map((index) => sentenceTexts[index])
+        .filter((text): text is string => Boolean(text?.trim()))
+      if (texts.length > 0) {
+        prefetchSynth(texts)
+      }
+    }, 2000)
+    return () => window.clearTimeout(timer)
+  }, [visiblePage, isModelReady, isPlaying, words, sentenceTexts, prefetchSynth])
+
+  useEffect(() => {
     const warmAudio = () => {
       void audioScheduler.ensureContext()
     }
@@ -272,26 +330,6 @@ export function ReaderPage() {
     return currentSentenceIndex
   }, [activeWordIndex, words, currentSentenceIndex])
 
-  useEffect(() => {
-    if (!isModelReady || isPlaying || sentenceTexts.length === 0) return
-
-    const resumeIndex = getResumeSentenceIndex()
-    const text = sentenceTexts[resumeIndex]
-    if (text) {
-      prefetch(resumeIndex, text)
-    }
-  }, [
-    isModelReady,
-    isPlaying,
-    sentenceTexts,
-    currentSentenceIndex,
-    activeWordIndex,
-    voice,
-    speed,
-    getResumeSentenceIndex,
-    prefetch,
-  ])
-
   const handleAudioChunk = useCallback(
     async (chunk: {
       text: string
@@ -299,7 +337,9 @@ export function ReaderPage() {
       sampleRate: number
       sentenceIndex: number
     }) => {
-      if (streamGenRef.current !== playbackGenRef.current) return
+      if (streamGenRef.current !== playbackGenRef.current) {
+        return
+      }
 
       const sentence = sentences[chunk.sentenceIndex]
       const sentenceWords = sentence
@@ -322,7 +362,29 @@ export function ReaderPage() {
         words: timingWords.length > 0 ? timingWords : sentenceWords,
       })
 
-      if (duration <= 0 || streamGenRef.current !== playbackGenRef.current) return
+      if (duration <= 0 || streamGenRef.current !== playbackGenRef.current) {
+        if (
+          duration <= 0 &&
+          usePlayerStore.getState().isPlaying &&
+          !userSeekInProgressRef.current
+        ) {
+          setPlaying(false)
+        }
+        return
+      }
+
+      if (userSeekInProgressRef.current) {
+        userSeekInProgressRef.current = false
+      }
+
+      if (streamingRef.current && !userSeekInProgressRef.current) {
+        const upcoming = [sentenceTexts[chunk.sentenceIndex + 1]].filter((t): t is string =>
+          Boolean(t?.trim()),
+        )
+        if (upcoming.length > 0) {
+          prefetchSynth(upcoming)
+        }
+      }
 
       highlightSync.registerSentenceTiming(
         timingWords.length > 0 ? timingWords : sentenceWords,
@@ -330,13 +392,8 @@ export function ReaderPage() {
         duration,
       )
 
-      const nextIdx = chunk.sentenceIndex + 1
-      const nextText = sentenceTexts[nextIdx]
-      if (nextText) {
-        prefetch(nextIdx, nextText)
-      }
     },
-    [sentences, words, sentenceTexts, prefetch],
+    [sentences, words, sentenceTexts, prefetchSynth, setPlaying],
   )
 
   const beginStream = useCallback(
@@ -346,7 +403,6 @@ export function ReaderPage() {
       streamStartWordRef.current =
         fromWordIndex !== undefined ? { sentenceIndex: fromIndex, wordIndex: fromWordIndex } : null
       streamingRef.current = true
-      stopStream()
       audioScheduler.clear()
       audioScheduler.beginScheduling()
       highlightSync.clear()
@@ -359,6 +415,7 @@ export function ReaderPage() {
       }
 
       highlightSync.onWord((wordIndex, pageNum) => {
+        if (streamGenRef.current !== playbackGenRef.current) return
         setActiveWord(wordIndex, pageNum)
         setSentenceIndex(sentenceIndexFromWord(words, wordIndex, fromIndex))
       })
@@ -366,21 +423,29 @@ export function ReaderPage() {
       const streamTexts = [...sentenceTexts]
       if (fromWordIndex !== undefined) {
         const sentence = sentences[fromIndex]
-        if (sentence) {
+        const isMidSentence =
+          sentence !== undefined && fromWordIndex > sentence.startWordIndex
+        if (isMidSentence) {
           const sliceWords = words.filter(
             (w) =>
               w.globalIndex >= fromWordIndex &&
               w.globalIndex <= sentence.endWordIndex,
           )
           if (sliceWords.length > 0) {
-            streamTexts[fromIndex] = sliceWords.map((w) => w.text).join(' ')
+            const sliceText = sliceWords.map((w) => w.text).join(' ').trim()
+            if (sliceText.length > 0) {
+              streamTexts[fromIndex] = sliceText
+            } else {
+              streamStartWordRef.current = null
+            }
           }
         }
       }
 
+      await audioScheduler.play()
       await startStream(streamTexts, fromIndex, handleAudioChunk)
     },
-    [sentenceTexts, sentences, words, startStream, stopStream, handleAudioChunk, setSentenceIndex, setActiveWord],
+    [sentenceTexts, sentences, words, startStream, handleAudioChunk, setSentenceIndex, setActiveWord],
   )
 
   const startHighlightSync = useCallback(() => {
@@ -396,8 +461,35 @@ export function ReaderPage() {
     setFollowResetKey((k) => k + 1)
   }, [])
 
+  const pausePlayback = useCallback(async () => {
+    if (!usePlayerStore.getState().isPlaying) return
+    playbackGenRef.current++
+    stopStream()
+    streamingRef.current = false
+    await audioScheduler.pause()
+    highlightSync.pause()
+    setPlaying(false)
+    void persist()
+  }, [stopStream, setPlaying, persist])
+
+  const handleUserNavigate = useCallback(() => {
+    if (userSeekInProgressRef.current) {
+      return
+    }
+    pdfScrollerRef.current?.lockUserScroll()
+    setUserNavigatedAway(true)
+    void pausePlayback()
+  }, [pausePlayback])
+
   const startFromSentence = useCallback(
     async (index: number, autoPlay: boolean, wordIndex?: number) => {
+      const isUserClick = wordIndex !== undefined
+      if (isUserClick) {
+        userSeekInProgressRef.current = true
+        pdfScrollerRef.current?.lockUserScroll()
+        setUserNavigatedAway(false)
+      }
+
       playbackGenRef.current++
       const gen = playbackGenRef.current
       const clickedWord = wordIndex !== undefined ? words.find((w) => w.globalIndex === wordIndex) : null
@@ -405,13 +497,6 @@ export function ReaderPage() {
         0,
         Math.min(clickedWord?.sentenceIndex ?? index, sentenceTexts.length - 1),
       )
-      stopStream()
-      streamingRef.current = false
-      await audioScheduler.pause()
-      highlightSync.pause()
-      audioScheduler.clear()
-      highlightSync.clear()
-      resetFollowHighlight()
 
       if (clickedWord) {
         setActiveWord(clickedWord.globalIndex, clickedWord.pageNum)
@@ -423,20 +508,72 @@ export function ReaderPage() {
       }
       setSentenceIndex(clamped)
 
-      if (!autoPlay || !isModelReady) {
-        setPlaying(false)
-        void persist()
+      stopStream()
+      streamingRef.current = false
+      if (isUserClick && autoPlay) {
+        audioScheduler.clear()
+        highlightSync.pause()
+        highlightSync.clear()
+      } else {
+        await audioScheduler.pause()
+        highlightSync.pause()
+        audioScheduler.clear()
+        highlightSync.clear()
+      }
+
+      if (gen !== playbackGenRef.current) {
+        if (isUserClick) userSeekInProgressRef.current = false
         return
       }
 
-      if (gen !== playbackGenRef.current) return
+      if (!isUserClick) {
+        resetFollowHighlight()
+      }
+
+      if (clickedWord) {
+        pdfScrollerRef.current?.scrollToPage(clickedWord.pageNum, {
+          onlyIfOffscreen: isUserClick,
+        })
+      } else {
+        const sentence = sentences[clamped]
+        if (sentence) {
+          pdfScrollerRef.current?.scrollToPage(sentence.pageNum, {
+            onlyIfOffscreen: isUserClick,
+          })
+        }
+      }
+
+      const activeEngine = usePlayerStore.getState().engine
+      const engineReady = isEngineReady(activeEngine)
+      if (!autoPlay || !engineReady) {
+        if (autoPlay) {
+          pendingClickRef.current = { index: clamped, wordIndex: clickedWord?.globalIndex }
+          void switchEngineDirect(activeEngine)
+        } else {
+          await audioScheduler.pause()
+          setPlaying(false)
+          void persist()
+        }
+        if (isUserClick) userSeekInProgressRef.current = false
+        return
+      }
+
+      pendingClickRef.current = null
+
+      if (gen !== playbackGenRef.current) {
+        if (isUserClick) userSeekInProgressRef.current = false
+        return
+      }
 
       setPlaying(true)
       await audioScheduler.ensureContext()
       const fromWord = clickedWord?.globalIndex
+
       await beginStream(clamped, fromWord)
-      if (gen !== playbackGenRef.current) return
-      await audioScheduler.play()
+      if (gen !== playbackGenRef.current) {
+        if (isUserClick) userSeekInProgressRef.current = false
+        return
+      }
       startHighlightSync()
       void persist()
     },
@@ -456,10 +593,17 @@ export function ReaderPage() {
     ],
   )
 
+  useEffect(() => {
+    const pending = pendingClickRef.current
+    if (!pending || !isEngineReady(engine)) return
+    pendingClickRef.current = null
+    void startFromSentence(pending.index, true, pending.wordIndex)
+  }, [isModelReady, engine, startFromSentence])
+
   const handlePlayPause = useCallback(async () => {
-    if (!isModelReady) {
+    if (!isModelReady || !isEngineReady(engine)) {
       if (!isModelLoading) {
-        preloadEngine(engine)
+        void switchEngine(engine)
       }
       toast.info('Loading voice model…', {
         description: 'Visit Home first to preload, or wait for the model to finish downloading.',
@@ -492,7 +636,7 @@ export function ReaderPage() {
     engine,
     sentenceTexts,
     getResumeSentenceIndex,
-    activeWordIndex,
+    setPlaying,
     stopStream,
     persist,
     startFromSentence,
@@ -504,24 +648,95 @@ export function ReaderPage() {
     }
   }, [modelError])
 
-  const handleSeek = useCallback(
-    (index: number) => {
-      void startFromSentence(index, isPlaying)
-    },
-    [startFromSentence, isPlaying],
-  )
-
-  const handleLineClick = useCallback(
-    (sentenceIndex: number, wordIndex: number) => {
-      void startFromSentence(sentenceIndex, true, wordIndex)
+  const scheduleSeek = useCallback(
+    (index: number, autoPlay: boolean, wordIndex?: number) => {
+      seekCoalesceRef.current = { index, autoPlay, wordIndex }
+      queueMicrotask(() => {
+        const pending = seekCoalesceRef.current
+        if (!pending) return
+        seekCoalesceRef.current = null
+        void startFromSentence(pending.index, pending.autoPlay, pending.wordIndex)
+      })
     },
     [startFromSentence],
   )
 
+  useEffect(() => {
+    const pending = pendingPageClickRef.current
+    if (!pending) return
+    const pageWords = words.filter((w) => w.pageNum === pending.pageNum)
+    if (pageWords.length === 0) return
+    const word = findClickTargetAtPoint(pageWords, pending.x, pending.y)
+    if (!word) return
+    pendingPageClickRef.current = null
+    scheduleSeek(word.sentenceIndex, true, word.globalIndex)
+  }, [words, scheduleSeek])
+
+  const handleSeek = useCallback(
+    (index: number) => {
+      scheduleSeek(index, isPlaying)
+    },
+    [scheduleSeek, isPlaying],
+  )
+
+  const handleReturnToPlayback = useCallback(() => {
+    const targetPage = activePageNum > 0 ? activePageNum : visiblePage
+    if (targetPage > 0) {
+      pdfScrollerRef.current?.scrollToPage(targetPage)
+    }
+    setUserNavigatedAway(false)
+    resetFollowHighlight()
+  }, [activePageNum, visiblePage, resetFollowHighlight])
+
+  useEffect(() => {
+    if (activePageNum > 0 && visiblePage === activePageNum) {
+      setUserNavigatedAway(false)
+    }
+  }, [visiblePage, activePageNum])
+
+  const visiblePageWordCount = words.filter((w) => w.pageNum === visiblePage).length
+  const playbackPage = activePageNum > 0 ? activePageNum : 0
+  const scrolledPastPlayback = playbackPage > 0 && visiblePage > playbackPage
+  const onEmptyPageAhead =
+    playbackPage > 0 &&
+    visiblePage > playbackPage &&
+    visiblePageWordCount === 0
+  const showReturnBanner =
+    userNavigatedAway && playbackPage > 0 && (scrolledPastPlayback || onEmptyPageAhead)
+  const returnBannerReason: 'empty' | 'away' = onEmptyPageAhead ? 'empty' : 'away'
+
+  const handleEmptyPageClick = useCallback(
+    (pageNum: number, x: number, y: number) => {
+      pendingPageClickRef.current = { pageNum, x, y }
+      pdfScrollerRef.current?.scrollToPage(pageNum)
+      if (isScanned) {
+        void ocrPage(pageNum)
+        prefetchAround(pageNum)
+        toast.info(`Recognizing text on page ${pageNum}…`, {
+          description: 'Playback will start when OCR finishes.',
+        })
+      } else {
+        toast.info(`No selectable text on page ${pageNum}`, {
+          description: 'This page may be a figure or blank spread in an otherwise digital PDF.',
+        })
+      }
+    },
+    [isScanned, ocrPage, prefetchAround],
+  )
+
+  const handleLineClick = useCallback(
+    (sentenceIndex: number, wordIndex: number) => {
+      userSeekInProgressRef.current = true
+      scheduleSeek(sentenceIndex, true, wordIndex)
+    },
+    [scheduleSeek],
+  )
+
   const handleVoiceChange = useCallback(
     (newVoice: string) => {
-      invalidatePrefetch()
+      clearSynthCache()
       setVoice(newVoice)
+      rememberVoiceForEngine(usePlayerStore.getState().engine, newVoice)
 
       if (docId) {
         void saveMetadata({
@@ -551,7 +766,6 @@ export function ReaderPage() {
       void startFromSentence(resumeIndex, true)
     },
     [
-      invalidatePrefetch,
       startFromSentence,
       setVoice,
       docId,
@@ -563,7 +777,6 @@ export function ReaderPage() {
       sentences,
       setActiveWord,
       setSentenceIndex,
-      beginStream,
       resetFollowHighlight,
     ],
   )
@@ -578,30 +791,44 @@ export function ReaderPage() {
 
   const handleSpeedChange = useCallback(
     (newSpeed: number) => {
-      invalidatePrefetch()
+      clearSynthCache()
       setSpeed(newSpeed)
+      savePreferences({ speed: newSpeed })
       audioScheduler.setPlaybackRate(newSpeed)
-    },
-    [setSpeed, invalidatePrefetch],
-  )
 
-  const handleEngineChange = useCallback(
-    (newEngine: TtsEngineType) => {
-      streamingRef.current = false
-      stopStream()
-      switchEngine(newEngine)
       if (docId) {
         void saveMetadata({
           docId,
           isScanned,
           totalPages,
           voice: usePlayerStore.getState().voice,
-          speed: usePlayerStore.getState().speed,
+          speed: newSpeed,
+          engine: usePlayerStore.getState().engine,
+        })
+      }
+    },
+    [setSpeed, docId, isScanned, totalPages],
+  )
+
+  const handleEngineChange = useCallback(
+    (newEngine: TtsEngineType) => {
+      const prev = usePlayerStore.getState()
+      rememberVoiceForEngine(prev.engine, prev.voice)
+      streamingRef.current = false
+      stopStream()
+      void switchEngine(newEngine)
+      if (docId) {
+        void saveMetadata({
+          docId,
+          isScanned,
+          totalPages,
+          voice: getPreferredVoice(newEngine),
+          speed: prev.speed,
           engine: newEngine,
         })
       }
     },
-    [switchEngine, stopStream, docId, isScanned, totalPages],
+    [stopStream, docId, isScanned, totalPages],
   )
 
   useEffect(() => {
@@ -648,8 +875,8 @@ export function ReaderPage() {
           </div>
         </div>
         <div className="reader-canvas flex-1 space-y-8 overflow-y-auto px-6 py-8 sm:px-8">
-          <Skeleton className="mx-auto h-[520px] max-w-3xl rounded-sm bg-white/80 shadow-sm" />
-          <Skeleton className="mx-auto h-[520px] max-w-3xl rounded-sm bg-white/80 shadow-sm" />
+          <Skeleton className="mx-auto h-[520px] max-w-4xl rounded-xl" />
+          <Skeleton className="mx-auto h-[520px] max-w-4xl rounded-xl" />
         </div>
         <LoadingOverlay message="Loading PDF…" />
       </div>
@@ -669,9 +896,6 @@ export function ReaderPage() {
         {isExtracting && isScanned && (
           <LoadingOverlay message="Running OCR on pages…" />
         )}
-        {!isModelReady && isModelLoading && (
-          <LoadingOverlay message="Loading voice model…" />
-        )}
         <PdfScroller
           pdfDoc={pdfDoc}
           totalPages={totalPages}
@@ -682,10 +906,25 @@ export function ReaderPage() {
           initialPage={initialPage}
           resetFollowKey={followResetKey}
           onVisiblePageChange={setVisiblePage}
+          onUserNavigate={handleUserNavigate}
+          suppressUserNavigateRef={userSeekInProgressRef}
           onLineClick={handleLineClick}
+          onEmptyPageClick={handleEmptyPageClick}
+          onReturnToPlayback={handleReturnToPlayback}
+          playbackPageNum={playbackPage}
           words={words}
+          scrollerRef={pdfScrollerRef}
         />
       </div>
+
+      {showReturnBanner && (
+        <ReaderReturnBanner
+          visiblePage={visiblePage}
+          playbackPage={playbackPage}
+          reason={returnBannerReason}
+          onReturn={handleReturnToPlayback}
+        />
+      )}
 
       <PlayerBar
         onPlayPause={() => void handlePlayPause()}

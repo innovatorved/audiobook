@@ -5,7 +5,6 @@ import {
   HIGHLIGHT_DISPLAY_RATIO,
   HIGHLIGHT_SENTENCE_PAD_X,
   HIGHLIGHT_SENTENCE_PAD_Y,
-  HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX,
 } from '@/lib/pdf/constants'
 
 export interface HighlightBounds {

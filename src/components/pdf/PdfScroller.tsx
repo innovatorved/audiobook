@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import type { Ref, RefObject } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { PdfPage } from '@/components/pdf/PdfPage'
 import { PDF_RENDER_SCALE } from '@/lib/pdf/constants'
 import type { WordPosition } from '@/lib/types'
+
+export type PdfScrollerHandle = {
+  scrollToPage: (pageNum: number, options?: { onlyIfOffscreen?: boolean }) => void
+  lockUserScroll: () => void
+}
 
 interface PdfScrollerProps {
   pdfDoc: PDFDocumentProxy
@@ -15,8 +21,14 @@ interface PdfScrollerProps {
   initialPage?: number
   resetFollowKey?: number
   onVisiblePageChange?: (pageNum: number) => void
+  onUserNavigate?: () => void
+  suppressUserNavigateRef?: RefObject<boolean>
   onLineClick?: (sentenceIndex: number, wordIndex: number) => void
+  onEmptyPageClick?: (pageNum: number, x: number, y: number) => void
+  onReturnToPlayback?: () => void
+  playbackPageNum?: number
   words: WordPosition[]
+  scrollerRef?: Ref<PdfScrollerHandle>
 }
 
 const PAGE_CHROME = 56
@@ -32,21 +44,49 @@ export function PdfScroller({
   initialPage,
   resetFollowKey = 0,
   onVisiblePageChange,
+  onUserNavigate,
+  suppressUserNavigateRef,
   onLineClick,
+  onEmptyPageClick,
+  onReturnToPlayback,
+  playbackPageNum,
   words,
+  scrollerRef,
 }: PdfScrollerProps) {
   const parentRef = useRef<HTMLDivElement>(null)
+  const columnRef = useRef<HTMLDivElement>(null)
   const pageCache = useRef<Map<number, Awaited<ReturnType<PDFDocumentProxy['getPage']>>>>(new Map())
-  const pageHeightsRef = useRef<Map<number, number>>(new Map())
+  const nativePageSizesRef = useRef<Map<number, { width: number; height: number }>>(new Map())
   const userScrolledRef = useRef(false)
+  const programmaticScrollUntilRef = useRef(0)
   const lastFollowedPageRef = useRef(-1)
   const initialScrollDoneRef = useRef(false)
 
+  const markProgrammaticScroll = useCallback(() => {
+    programmaticScrollUntilRef.current = Date.now() + 400
+  }, [])
+
   const [heightEstimatesReady, setHeightEstimatesReady] = useState(false)
+  const [columnWidth, setColumnWidth] = useState(0)
+
+  useLayoutEffect(() => {
+    const el = columnRef.current
+    if (!el) return
+    const update = () => {
+      const width = el.clientWidth
+      if (width > 0) setColumnWidth(width)
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
-    pageHeightsRef.current.clear()
+    nativePageSizesRef.current.clear()
     setHeightEstimatesReady(false)
 
     void (async () => {
@@ -54,7 +94,10 @@ export function PdfScroller({
         if (cancelled) return
         const page = await pdfDoc.getPage(i)
         const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
-        pageHeightsRef.current.set(i, viewport.height + PAGE_CHROME)
+        nativePageSizesRef.current.set(i, {
+          width: viewport.width,
+          height: viewport.height,
+        })
       }
       if (!cancelled) setHeightEstimatesReady(true)
     })()
@@ -64,13 +107,28 @@ export function PdfScroller({
     }
   }, [pdfDoc, totalPages])
 
+  const estimateSize = useCallback(
+    (index: number) => {
+      const native = nativePageSizesRef.current.get(index + 1)
+      if (!native || columnWidth <= 0) return FALLBACK_PAGE_HEIGHT
+      const scale = Math.min(1, columnWidth / native.width)
+      return native.height * scale + PAGE_CHROME
+    },
+    [columnWidth],
+  )
+
+  // TanStack Virtual returns un-memoizable functions; we rely on its internal stability.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: totalPages,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) =>
-      pageHeightsRef.current.get(index + 1) ?? FALLBACK_PAGE_HEIGHT,
+    estimateSize,
     overscan: 2,
   })
+
+  useEffect(() => {
+    virtualizer.measure()
+  }, [columnWidth, heightEstimatesReady, virtualizer])
 
   const getPage = useCallback(
     async (pageNum: number) => {
@@ -94,23 +152,70 @@ export function PdfScroller({
       return
     }
     initialScrollDoneRef.current = true
+    markProgrammaticScroll()
     virtualizer.scrollToIndex(initialPage - 1, { align: 'start', behavior: 'auto' })
-  }, [initialPage, virtualizer, heightEstimatesReady])
+  }, [initialPage, virtualizer, heightEstimatesReady, markProgrammaticScroll])
 
   useEffect(() => {
     if (!followHighlight || userScrolledRef.current || activePageNum < 1) return
     if (activePageNum === lastFollowedPageRef.current) return
     lastFollowedPageRef.current = activePageNum
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    markProgrammaticScroll()
     virtualizer.scrollToIndex(activePageNum - 1, {
       align: 'center',
       behavior: prefersReducedMotion ? 'auto' : 'smooth',
     })
-  }, [activePageNum, followHighlight, virtualizer])
+  }, [activePageNum, followHighlight, virtualizer, markProgrammaticScroll])
 
-  const handleUserScroll = useCallback(() => {
+  const lockUserScroll = useCallback(() => {
     userScrolledRef.current = true
-  }, [])
+    markProgrammaticScroll()
+  }, [markProgrammaticScroll])
+
+  const isPageInView = useCallback(
+    (pageNum: number) =>
+      virtualizer.getVirtualItems().some((item) => item.index + 1 === pageNum),
+    [virtualizer],
+  )
+
+  const notifyUserNavigate = useCallback(() => {
+    const suppressed = suppressUserNavigateRef?.current === true
+    const programmatic = Date.now() < programmaticScrollUntilRef.current
+    if (suppressed || programmatic) return
+    userScrolledRef.current = true
+    onUserNavigate?.()
+  }, [onUserNavigate, suppressUserNavigateRef])
+
+  const handleLineClick = useCallback(
+    (sentenceIndex: number, wordIndex: number) => {
+      markProgrammaticScroll()
+      lockUserScroll()
+      onLineClick?.(sentenceIndex, wordIndex)
+    },
+    [onLineClick, markProgrammaticScroll, lockUserScroll],
+  )
+
+  const handleWheel = useCallback(() => notifyUserNavigate(), [notifyUserNavigate])
+  const handleTouchMove = useCallback(() => notifyUserNavigate(), [notifyUserNavigate])
+  const handleScroll = useCallback(() => notifyUserNavigate(), [notifyUserNavigate])
+
+  const scrollToPage = useCallback(
+    (pageNum: number, options?: { onlyIfOffscreen?: boolean }) => {
+      if (pageNum < 1 || pageNum > totalPages) return
+      const skipped = options?.onlyIfOffscreen && isPageInView(pageNum)
+      if (skipped) return
+      userScrolledRef.current = true
+      markProgrammaticScroll()
+      virtualizer.scrollToIndex(pageNum - 1, { align: 'start', behavior: 'auto' })
+    },
+    [totalPages, virtualizer, isPageInView, markProgrammaticScroll],
+  )
+
+  useImperativeHandle(scrollerRef, () => ({ scrollToPage, lockUserScroll }), [
+    scrollToPage,
+    lockUserScroll,
+  ])
 
   const virtualItems = virtualizer.getVirtualItems()
 
@@ -123,12 +228,14 @@ export function PdfScroller({
   return (
     <div
       ref={parentRef}
-      className="reader-canvas h-full min-h-0 overflow-y-auto px-4 pb-36 pt-4 sm:px-6"
-      onWheel={handleUserScroll}
-      onTouchStart={handleUserScroll}
+      className="reader-canvas h-full min-h-0 overflow-x-hidden overflow-y-auto px-4 pb-40 pt-7 sm:px-10 sm:pt-12 sm:pb-44"
+      onWheel={handleWheel}
+      onTouchMove={handleTouchMove}
+      onScroll={handleScroll}
     >
       <div
-        className="relative mx-auto max-w-3xl"
+        ref={columnRef}
+        className="relative mx-auto w-full max-w-4xl"
         style={{ height: virtualizer.getTotalSize() }}
       >
         {virtualItems.map((virtualItem) => (
@@ -146,8 +253,13 @@ export function PdfScroller({
               getPage={getPage}
               activeWord={activeWord}
               activeSentenceWords={activeSentenceWords}
-              onLineClick={onLineClick}
+              onLineClick={handleLineClick}
+              onEmptyPageClick={onEmptyPageClick}
+              onReturnToPlayback={onReturnToPlayback}
+              playbackPageNum={playbackPageNum}
               pageWords={words.filter((w) => w.pageNum === virtualItem.index + 1)}
+              maxWidth={columnWidth}
+              estimatedNativeSize={nativePageSizesRef.current.get(virtualItem.index + 1)}
             />
           </div>
         ))}
@@ -162,14 +274,24 @@ function PdfPageWrapper({
   activeWord,
   activeSentenceWords,
   onLineClick,
+  onEmptyPageClick,
+  onReturnToPlayback,
+  playbackPageNum,
   pageWords,
+  maxWidth,
+  estimatedNativeSize,
 }: {
   pageNum: number
   getPage: (n: number) => Promise<Awaited<ReturnType<PDFDocumentProxy['getPage']>>>
   activeWord: WordPosition | null
   activeSentenceWords: WordPosition[]
   onLineClick?: (sentenceIndex: number, wordIndex: number) => void
+  onEmptyPageClick?: (pageNum: number, x: number, y: number) => void
+  onReturnToPlayback?: () => void
+  playbackPageNum?: number
   pageWords: WordPosition[]
+  maxWidth: number
+  estimatedNativeSize?: { width: number; height: number }
 }) {
   const [page, setPage] = useState<Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null>(null)
 
@@ -193,7 +315,12 @@ function PdfPageWrapper({
       activeSentenceWords={pageSentenceWords}
       isVisible={true}
       onLineClick={onLineClick}
+      onEmptyPageClick={onEmptyPageClick}
+      onReturnToPlayback={onReturnToPlayback}
+      playbackPageNum={playbackPageNum}
       pageWords={pageWords}
+      maxWidth={maxWidth}
+      estimatedNativeSize={estimatedNativeSize}
     />
   )
 }

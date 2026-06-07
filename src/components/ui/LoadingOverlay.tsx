@@ -15,7 +15,7 @@ export function LoadingOverlay({ message = 'Loading…', className }: LoadingOve
       )}
     >
       <div className="flex size-12 items-center justify-center rounded-full bg-card shadow-md ring-1 ring-border">
-        <Loader2 className="size-5 animate-spin text-primary" />
+        <Loader2 className="size-5 animate-spin text-foreground" />
       </div>
       <p className="text-sm font-medium text-muted-foreground">{message}</p>
     </div>

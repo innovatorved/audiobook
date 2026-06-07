@@ -1,4 +1,4 @@
-import type { SentenceInfo, WordPosition } from '@/lib/types'
+import type { WordPosition } from '@/lib/types'
 
 export interface ScheduledSentence {
   sentenceIndex: number

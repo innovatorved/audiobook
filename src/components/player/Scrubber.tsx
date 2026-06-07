@@ -16,7 +16,12 @@ export function Scrubber({ value, max, onChange }: ScrubberProps) {
       step={1}
       value={[value]}
       onValueChange={([v]) => onChange(v)}
-      className="flex-1 [&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-thumb]]:size-3.5 [&_[data-slot=slider-thumb]]:border-2 [&_[data-slot=slider-thumb]]:shadow-sm"
+      aria-label="Sentence progress"
+      className={[
+        'flex-1',
+        '[&_[data-slot=slider-track]]:h-1',
+        '[&_[data-slot=slider-thumb]]:size-4',
+      ].join(' ')}
     />
   )
 }

@@ -11,10 +11,7 @@ interface WordHighlightProps {
 }
 
 export function WordHighlight({ word, rect, variant, interactive, onClick }: WordHighlightProps) {
-  const backgroundColor =
-    variant === 'active'
-      ? 'var(--color-speaking-active)'
-      : 'var(--color-speaking)'
+  const isActive = variant === 'active'
 
   const bounds = rect ?? word
   if (!bounds) return null
@@ -23,26 +20,30 @@ export function WordHighlight({ word, rect, variant, interactive, onClick }: Wor
 
   const Tag = interactive ? 'button' : 'div'
 
+  const baseClasses = interactive
+    ? 'absolute cursor-pointer border-0 p-0 transition-opacity duration-150 hover:opacity-90'
+    : 'pointer-events-none absolute transition-opacity duration-150'
+
+  const style: React.CSSProperties = {
+    left: box.left,
+    top: box.top,
+    width: box.width,
+    height: box.height,
+    backgroundColor: isActive ? 'var(--color-speaking-active)' : 'var(--color-speaking)',
+    borderRadius: isActive ? 4 : 6,
+    border: isActive
+      ? '1.5px solid var(--color-speaking-border-active)'
+      : '1px solid var(--color-speaking-border)',
+    boxShadow: isActive
+      ? '0 0 0 1px rgb(185 28 28 / 12%)'
+      : '0 0 0 1px rgb(220 38 38 / 10%)',
+  }
+
   return (
     <Tag
       type={interactive ? 'button' : undefined}
-      className={
-        interactive
-          ? 'absolute cursor-pointer border-0 p-0 transition-opacity duration-150 hover:opacity-90'
-          : 'pointer-events-none absolute transition-opacity duration-150'
-      }
-      style={{
-        left: box.left,
-        top: box.top,
-        width: box.width,
-        height: box.height,
-        backgroundColor,
-        borderRadius: variant === 'active' ? 4 : 5,
-        boxShadow:
-          variant === 'active'
-            ? '0 0 0 1px oklch(0.44 0.11 28 / 22%)'
-            : '0 0 0 1px oklch(0.62 0.15 52 / 10%)',
-      }}
+      className={baseClasses}
+      style={style}
       title={interactive ? 'Read from this line' : undefined}
       aria-label={interactive ? 'Read from this line' : undefined}
       onClick={interactive ? onClick : undefined}
