@@ -22,11 +22,12 @@ function mapPageWords(
 
   for (let i = 0; i < sentenceTexts.length; i++) {
     const sentenceText = sentenceTexts[i]
-    const sentenceWords = sentenceText.split(/\s+/).filter(Boolean)
+    const sentenceTokens = sentenceText.split(/\s+/).filter(Boolean)
     const startWordIndex = globalIndex
     const sentenceIndex = startSentenceIndex + sentences.length
+    const matchedWords: WordPosition[] = []
 
-    for (const sw of sentenceWords) {
+    for (const sw of sentenceTokens) {
       const target = normalizeToken(sw)
       if (!target) continue
 
@@ -35,11 +36,13 @@ function mapPageWords(
         const raw = rawWords[wordCursor]
         wordCursor++
         if (normalizeToken(raw.text) === target) {
-          words.push({
+          const word: WordPosition = {
             ...raw,
             globalIndex,
             sentenceIndex,
-          })
+          }
+          words.push(word)
+          matchedWords.push(word)
           globalIndex++
           matched = true
           break
@@ -48,9 +51,9 @@ function mapPageWords(
       if (!matched) break
     }
 
-    if (globalIndex > startWordIndex) {
+    if (matchedWords.length > 0) {
       sentences.push({
-        text: sentenceText,
+        text: matchedWords.map((w) => w.text).join(' '),
         startWordIndex,
         endWordIndex: globalIndex - 1,
         pageNum: rawWords[0]?.pageNum ?? 1,

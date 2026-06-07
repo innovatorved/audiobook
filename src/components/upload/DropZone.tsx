@@ -26,11 +26,14 @@ export function DropZone({ className }: DropZoneProps) {
       setIsUploading(true)
       try {
         const buffer = await file.arrayBuffer()
-        const docId = await saveDocument(file.name, file, buffer)
+        const docId = await saveDocument(file.name, buffer)
         toast.success('PDF uploaded')
         navigate(`/read/${docId}`)
-      } catch {
-        toast.error('Failed to upload PDF')
+      } catch (err) {
+        console.error('[DropZone] PDF upload failed:', err)
+        const description =
+          err instanceof Error ? err.message : 'Could not save the PDF locally.'
+        toast.error('Failed to upload PDF', { description })
       } finally {
         setIsUploading(false)
       }

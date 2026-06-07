@@ -1,9 +1,8 @@
-import { HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX } from '@/lib/pdf/constants'
+import { HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX, LINE_TOLERANCE } from '@/lib/pdf/constants'
 import type { WordPosition } from '@/lib/types'
-
-const LINE_TOLERANCE = 12
 const WORD_GAP = 1
 const MAX_LINE_LEFT_STEP = 120
+const SENTENCE_BOUNDARY_GAP = 3
 
 function lineCenterY(word: WordPosition): number {
   return word.top + word.height / 2
@@ -76,6 +75,7 @@ function lineRightForSentenceOnPageLine(
   pageOnLine: WordPosition[],
   sentOnLine: WordPosition[],
 ): number {
+  const sentenceIndex = sentOnLine[0].sentenceIndex
   const sentIds = new Set(sentOnLine.map((w) => w.globalIndex))
   const hitIndices = pageOnLine
     .map((w, i) => (sentIds.has(w.globalIndex) ? i : -1))
@@ -91,18 +91,27 @@ function lineRightForSentenceOnPageLine(
   const firstIdx = Math.min(...hitIndices)
   const lastIdx = Math.max(...hitIndices)
   let right = pageOnLine[firstIdx].left
+  let nextSentenceLeft = Number.POSITIVE_INFINITY
 
   for (let i = firstIdx; i <= lastIdx; i++) {
     right = Math.max(right, wordRightEdge(pageOnLine, i))
   }
 
   for (let i = lastIdx + 1; i < pageOnLine.length; i++) {
+    if (pageOnLine[i].sentenceIndex !== sentenceIndex) {
+      nextSentenceLeft = pageOnLine[i].left
+      break
+    }
     const leftStep = pageOnLine[i].left - pageOnLine[i - 1].left
     if (leftStep > MAX_LINE_LEFT_STEP) break
     right = Math.max(right, wordRightEdge(pageOnLine, i))
   }
 
-  return right + HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX
+  const extendedRight = right + HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX
+  if (Number.isFinite(nextSentenceLeft)) {
+    return Math.min(extendedRight, Math.max(right, nextSentenceLeft - SENTENCE_BOUNDARY_GAP))
+  }
+  return extendedRight
 }
 
 function lineLeftFromPageWords(
@@ -110,6 +119,7 @@ function lineLeftFromPageWords(
   sentOnLine: WordPosition[],
   startIdx: number,
 ): number {
+  const sentenceIndex = sentOnLine[0].sentenceIndex
   const sentLeft = Math.min(...sentOnLine.map((w) => w.left))
   let left = sentLeft
 
@@ -120,6 +130,7 @@ function lineLeftFromPageWords(
   const anchorIdx = pageOnLine.findIndex((w) => w.globalIndex === firstSent.globalIndex)
   if (anchorIdx > 0) {
     for (let i = anchorIdx - 1; i >= startIdx; i--) {
+      if (pageOnLine[i].sentenceIndex !== sentenceIndex) break
       const leftStep = pageOnLine[i + 1].left - pageOnLine[i].left
       if (leftStep > MAX_LINE_LEFT_STEP) break
       left = Math.min(left, pageOnLine[i].left)

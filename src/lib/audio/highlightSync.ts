@@ -88,6 +88,23 @@ export class HighlightSync {
     this.baseOffset = offset
   }
 
+  /** Rescale future word timings when playback speed changes mid-stream. */
+  rescaleTimings(rateRatio: number, pivotTime: number): void {
+    if (rateRatio === 1) return
+
+    for (const timing of this.timings) {
+      if (timing.endTime <= pivotTime) continue
+
+      if (timing.startTime < pivotTime) {
+        timing.endTime = pivotTime + (timing.endTime - pivotTime) * rateRatio
+        continue
+      }
+
+      timing.startTime = pivotTime + (timing.startTime - pivotTime) * rateRatio
+      timing.endTime = pivotTime + (timing.endTime - pivotTime) * rateRatio
+    }
+  }
+
   private findTimingAt(time: number): WordTiming | undefined {
     for (let i = this.timings.length - 1; i >= 0; i--) {
       const t = this.timings[i]

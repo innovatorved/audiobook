@@ -1,5 +1,7 @@
-const LINE_TOLERANCE = 4
+import { LINE_TOLERANCE } from '@/lib/pdf/constants'
+
 const WORD_GAP = 2
+const MAX_EXPAND_SLACK_RATIO = 1.5
 
 type WordLike = { left: number; top: number; width: number; height: number; text?: string }
 
@@ -9,9 +11,19 @@ function clampLineWordWidths(line: WordLike[]): void {
   for (let i = 0; i < line.length - 1; i++) {
     const word = line[i]
     const nextLeft = line[i + 1].left
-    const maxWidth = nextLeft - word.left - WORD_GAP
-    if (maxWidth > 0 && word.width > maxWidth) {
-      word.width = maxWidth
+    const gap = nextLeft - word.left - WORD_GAP
+    if (gap <= 0) continue
+
+    if (word.width > gap) {
+      word.width = gap
+      continue
+    }
+
+    const reportedRight = word.left + word.width
+    const slack = nextLeft - reportedRight
+    const maxSlack = (word.height || 12) * MAX_EXPAND_SLACK_RATIO
+    if (slack > 0 && slack <= maxSlack) {
+      word.width = gap
     }
   }
 }
@@ -45,5 +57,5 @@ export function clampWordWidths<T extends WordLike>(words: T[]): T[] {
     clampLineWordWidths(line)
   }
 
-  return words
+  return sorted
 }

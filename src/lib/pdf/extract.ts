@@ -3,6 +3,7 @@ import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import type { WordPosition } from '@/lib/types'
 import { PDF_RENDER_SCALE } from '@/lib/pdf/constants'
 import { clampWordWidths } from '@/lib/pdf/clampWordWidths'
+import { sortWordsByReadingOrder } from '@/lib/pdf/sortWords'
 
 /**
  * PDF.js canonical text-item bounds (see mozilla/pdf.js#12031, #8655).
@@ -85,7 +86,7 @@ export async function extractWordsFromPage(
     }
   }
 
-  return words
+  return clampWordWidths(sortWordsByReadingOrder(words))
 }
 
 export async function extractAllDigitalWords(
@@ -100,5 +101,5 @@ export async function extractAllDigitalWords(
     allWords.push(...pageWords)
   }
 
-  return clampWordWidths(allWords)
+  return allWords
 }

@@ -52,14 +52,16 @@ export class KittenTtsRuntime {
 
   async generate(
     text: string,
-    opts: { voice?: string; speed?: number; clean?: boolean } = {},
+    opts: { voice?: string; speed?: number; clean?: boolean; shouldAbort?: () => boolean } = {},
   ): Promise<{ data: Float32Array; sampling_rate: number }> {
-    const { voice = 'Bella', speed = 1.0, clean = true } = opts
+    const { voice = 'Bella', speed = 1.0, clean = true, shouldAbort } = opts
     const chunks = this.chunkText(text)
     const audioChunks: Float32Array[] = []
 
     for (const chunk of chunks) {
+      if (shouldAbort?.()) break
       const inputs = await this.prepareInputs(chunk, voice, speed, clean)
+      if (shouldAbort?.()) break
       audioChunks.push(await this.runInference(inputs))
     }
 

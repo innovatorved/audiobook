@@ -6,11 +6,15 @@ export interface TtsStreamChunk {
   sampleRate: number
 }
 
+export interface TtsStreamOptions {
+  voice: string
+  speed: number
+  /** Return true to abort the stream as early as possible. Checked between chunks. */
+  shouldAbort?: () => boolean
+}
+
 export interface TtsEngine {
   load(onProgress: ProgressCallback): Promise<void>
-  stream(
-    chunks: string[],
-    opts: { voice: string; speed: number },
-  ): AsyncIterable<TtsStreamChunk>
+  stream(chunks: string[], opts: TtsStreamOptions): AsyncIterable<TtsStreamChunk>
   listVoices(): VoiceInfo[]
 }

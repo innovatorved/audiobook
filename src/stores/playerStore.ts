@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { TtsEngineType, VoiceInfo } from '@/lib/types'
+import { clampPlaybackSpeed } from '@/lib/audio/speed'
 
 export type ModelLoadStatus = 'idle' | 'downloading' | 'cached' | 'ready' | 'error'
 
@@ -7,6 +8,7 @@ interface PlayerState {
   isPlaying: boolean
   isModelLoading: boolean
   isModelReady: boolean
+  engineReady: boolean
   modelProgress: number
   modelLoadedBytes: number
   modelTotalBytes: number
@@ -29,6 +31,7 @@ interface PlayerState {
     details?: { loadedBytes?: number; totalBytes?: number; status?: ModelLoadStatus },
   ) => void
   setModelReady: (ready: boolean) => void
+  setEngineReady: (ready: boolean) => void
   setModelError: (message: string | null) => void
   setSpeed: (speed: number) => void
   setVolume: (volume: number) => void
@@ -45,6 +48,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   isPlaying: false,
   isModelLoading: false,
   isModelReady: false,
+  engineReady: false,
   modelProgress: 0,
   modelLoadedBytes: 0,
   modelTotalBytes: 0,
@@ -79,15 +83,17 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       modelError: ready ? null : state.modelError,
       modelFromCache: ready ? state.modelFromCache : false,
     })),
+  setEngineReady: (ready) => set({ engineReady: ready }),
   setModelError: (message) =>
     set({
       isModelLoading: false,
       isModelReady: false,
+      engineReady: false,
       modelProgress: 0,
       modelStatus: 'error',
       modelError: message,
     }),
-  setSpeed: (speed) => set({ speed }),
+  setSpeed: (speed) => set({ speed: clampPlaybackSpeed(speed) }),
   setVolume: (volume) => set({ volume }),
   setVoice: (voice) => set({ voice }),
   setEngine: (engine) => set({ engine }),

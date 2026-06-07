@@ -8,6 +8,7 @@ import { ReaderReturnBanner } from '@/components/pdf/ReaderReturnBanner'
 import { PlayerBar } from '@/components/player/PlayerBar'
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
 import { pdfjs } from '@/lib/pdf/setup'
 import { isScannedPdf } from '@/lib/pdf/detect'
 import { extractAllDigitalWords } from '@/lib/pdf/extract'
@@ -23,6 +24,8 @@ import {
 } from '@/lib/preferences'
 import { audioScheduler } from '@/lib/audio/scheduler'
 import { highlightSync } from '@/lib/audio/highlightSync'
+import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED, clampPlaybackSpeed } from '@/lib/audio/speed'
+import { streamTextForSeek } from '@/lib/audio/streamText'
 import { useReaderStore } from '@/stores/readerStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useTtsWorker } from '@/hooks/useTtsWorker'
@@ -30,6 +33,7 @@ import { findClickTargetAtPoint } from '@/lib/pdf/findWordAtPoint'
 import { clearSynthCache, isEngineReady } from '@/lib/tts/ttsWorkerManager'
 import { useOcrPrefetch } from '@/hooks/useOcrPrefetch'
 import { useReadingProgress } from '@/hooks/useReadingProgress'
+import type { SentenceInfo, WordPosition } from '@/lib/types'
 
 function sentenceIndexFromWord(
   words: { globalIndex: number; sentenceIndex: number }[],
@@ -68,6 +72,8 @@ export function ReaderPage() {
   const userSeekInProgressRef = useRef(false)
   const pendingClickRef = useRef<{ index: number; wordIndex?: number } | null>(null)
   const pendingPageClickRef = useRef<{ pageNum: number; x: number; y: number } | null>(null)
+  const playbackStartRef = useRef(0)
+  const firstChunkLoggedRef = useRef(false)
 
   const {
     docName,
@@ -89,6 +95,7 @@ export function ReaderPage() {
     isPlaying,
     isModelReady,
     isModelLoading,
+    engineReady,
     setPlaying,
     speed,
     setSpeed,
@@ -105,7 +112,15 @@ export function ReaderPage() {
     reset: resetPlayer,
   } = usePlayerStore()
 
-  const { ensureEngine, startStream, stopStream, prefetchSynth } = useTtsWorker()
+  const prevSpeedRef = useRef(speed)
+
+  const {
+    ensureEngine,
+    startStream,
+    stopStream,
+    prefetchSynth,
+    enableContinuousPrefetch,
+  } = useTtsWorker()
   const { prefetchAround, ocrPage } = useOcrPrefetch()
   const { persist, restoreProgress } = useReadingProgress()
 
@@ -145,8 +160,8 @@ export function ReaderPage() {
   )
 
   const applyContentStart = useCallback(
-    (sents: { pageNum: number; startWordIndex: number; text: string }[]) => {
-      const sentenceIdx = findContentStartSentence(sents)
+    (sents: SentenceInfo[], mappedWords: WordPosition[], texts: string[]) => {
+      const sentenceIdx = findContentStartSentence(sents, mappedWords)
       const sentence = sents[sentenceIdx]
       if (sentence) {
         setSentenceIndex(sentenceIdx)
@@ -176,7 +191,14 @@ export function ReaderPage() {
     void (async () => {
       try {
         const doc = await getDocument(docId)
-        if (!doc || cancelled) return
+        if (cancelled) return
+        if (!doc) {
+          toast.error('PDF not found', {
+            description: 'It may not have saved correctly. Try uploading again.',
+          })
+          setIsLoading(false)
+          return
+        }
 
         const buffer = await doc.pdfBlob.arrayBuffer()
         const loadingTask = pdfjs.getDocument({ data: buffer })
@@ -189,17 +211,18 @@ export function ReaderPage() {
         const metadata = await getMetadata(docId)
         if (metadata) {
           const safeVoice = sanitizeVoice(metadata.voice)
+          const safeSpeed = clampPlaybackSpeed(metadata.speed ?? prefs.speed)
           rememberVoice(safeVoice)
           usePlayerStore.setState({
             engine: 'kitten',
             voice: safeVoice,
-            speed: metadata.speed ?? prefs.speed,
+            speed: safeSpeed,
           })
         } else {
           usePlayerStore.setState({
             engine: 'kitten',
             voice: prefs.voice,
-            speed: prefs.speed,
+            speed: clampPlaybackSpeed(prefs.speed),
           })
         }
 
@@ -232,16 +255,17 @@ export function ReaderPage() {
           if (progress && !cancelled) {
             applySavedProgress(progress)
           } else if (!cancelled) {
-            applyContentStart(sents)
+            applyContentStart(sents, mapped, texts)
           }
         }
 
-        if (!isEngineReady()) {
-          ensureEngine()
-        }
+        ensureEngine()
         setIsLoading(false)
-      } catch {
-        toast.error('Failed to load document')
+      } catch (err) {
+        console.error('[Reader] Failed to load document:', err)
+        const description =
+          err instanceof Error ? err.message : 'The file may be corrupted or unsupported.'
+        toast.error('Failed to load document', { description })
         setIsLoading(false)
       }
     })()
@@ -284,35 +308,22 @@ export function ReaderPage() {
   }, [sentenceTexts.length, setTotalSentences])
 
   useEffect(() => {
-    if (!isModelReady || isPlaying || words.length === 0 || sentenceTexts.length === 0) return
-    const timer = window.setTimeout(() => {
-      const indices = [
-        ...new Set(words.filter((w) => w.pageNum === visiblePage).map((w) => w.sentenceIndex)),
-      ]
-        .sort((a, b) => a - b)
-        .slice(0, 3)
-      const texts = indices
-        .map((index) => sentenceTexts[index])
-        .filter((text): text is string => Boolean(text?.trim()))
-      if (texts.length > 0) {
-        prefetchSynth(texts)
-      }
-    }, 2000)
-    return () => window.clearTimeout(timer)
-  }, [visiblePage, isModelReady, isPlaying, words, sentenceTexts, prefetchSynth])
-
-  useEffect(() => {
     const warmAudio = () => {
-      void audioScheduler.ensureContext()
+      void audioScheduler.ensureContext().then((ctx) => void ctx.resume())
     }
     window.addEventListener('pointerdown', warmAudio, { once: true })
     return () => window.removeEventListener('pointerdown', warmAudio)
   }, [])
 
   useEffect(() => {
+    const oldRate = prevSpeedRef.current
+    prevSpeedRef.current = speed
     audioScheduler.setPlaybackRate(speed)
+    if (oldRate !== speed && isPlaying) {
+      highlightSync.rescaleTimings(oldRate / speed, audioScheduler.getCurrentTime())
+    }
     highlightSync.seekToTime(audioScheduler.getCurrentTime())
-  }, [speed])
+  }, [speed, isPlaying])
 
   useEffect(() => {
     audioScheduler.onSentenceScheduled((sentence) => {
@@ -336,6 +347,10 @@ export function ReaderPage() {
     }) => {
       if (streamGenRef.current !== playbackGenRef.current) {
         return
+      }
+
+      if (!firstChunkLoggedRef.current) {
+        firstChunkLoggedRef.current = true
       }
 
       const sentence = sentences[chunk.sentenceIndex]
@@ -375,11 +390,15 @@ export function ReaderPage() {
       }
 
       if (streamingRef.current && !userSeekInProgressRef.current) {
-        const upcoming = [sentenceTexts[chunk.sentenceIndex + 1]].filter((t): t is string =>
-          Boolean(t?.trim()),
-        )
-        if (upcoming.length > 0) {
-          prefetchSynth(upcoming)
+        const bufferedAhead = audioScheduler.getBufferedAheadSeconds()
+        if (bufferedAhead < 12) {
+          const upcoming = [
+            sentenceTexts[chunk.sentenceIndex + 1]?.trim(),
+            sentenceTexts[chunk.sentenceIndex + 2]?.trim(),
+          ].filter((text): text is string => Boolean(text))
+          if (upcoming.length > 0) {
+            prefetchSynth(upcoming)
+          }
         }
       }
 
@@ -396,6 +415,13 @@ export function ReaderPage() {
   const beginStream = useCallback(
     async (fromIndex: number, fromWordIndex?: number) => {
       if (sentenceTexts.length === 0) return
+      const { text: seekText } = streamTextForSeek(
+        sentences,
+        words,
+        sentenceTexts,
+        fromIndex,
+        fromWordIndex,
+      )
       streamGenRef.current = playbackGenRef.current
       streamStartWordRef.current =
         fromWordIndex !== undefined ? { sentenceIndex: fromIndex, wordIndex: fromWordIndex } : null
@@ -417,32 +443,35 @@ export function ReaderPage() {
         setSentenceIndex(sentenceIndexFromWord(words, wordIndex, fromIndex))
       })
 
-      const streamTexts = [...sentenceTexts]
-      if (fromWordIndex !== undefined) {
-        const sentence = sentences[fromIndex]
-        const isMidSentence =
-          sentence !== undefined && fromWordIndex > sentence.startWordIndex
-        if (isMidSentence) {
-          const sliceWords = words.filter(
-            (w) =>
-              w.globalIndex >= fromWordIndex &&
-              w.globalIndex <= sentence.endWordIndex,
-          )
-          if (sliceWords.length > 0) {
-            const sliceText = sliceWords.map((w) => w.text).join(' ').trim()
-            if (sliceText.length > 0) {
-              streamTexts[fromIndex] = sliceText
-            } else {
-              streamStartWordRef.current = null
-            }
-          }
-        }
+      const { fromWordIndex: sliceFrom } = streamTextForSeek(
+        sentences,
+        words,
+        sentenceTexts,
+        fromIndex,
+        fromWordIndex,
+      )
+      if (fromWordIndex !== undefined && sliceFrom === undefined) {
+        streamStartWordRef.current = null
       }
 
-      await audioScheduler.play()
-      await startStream(streamTexts, fromIndex, handleAudioChunk)
+      enableContinuousPrefetch(true)
+      const streamTexts = [...sentenceTexts]
+      if (seekText) streamTexts[fromIndex] = seekText
+      await Promise.all([
+        audioScheduler.play(),
+        startStream(streamTexts, fromIndex, handleAudioChunk),
+      ])
     },
-    [sentenceTexts, sentences, words, startStream, handleAudioChunk, setSentenceIndex, setActiveWord],
+    [
+      sentenceTexts,
+      sentences,
+      words,
+      startStream,
+      enableContinuousPrefetch,
+      handleAudioChunk,
+      setSentenceIndex,
+      setActiveWord,
+    ],
   )
 
   const startHighlightSync = useCallback(() => {
@@ -475,8 +504,7 @@ export function ReaderPage() {
     }
     pdfScrollerRef.current?.lockUserScroll()
     setUserNavigatedAway(true)
-    void pausePlayback()
-  }, [pausePlayback])
+  }, [])
 
   const startFromSentence = useCallback(
     async (index: number, autoPlay: boolean, wordIndex?: number) => {
@@ -505,13 +533,13 @@ export function ReaderPage() {
       }
       setSentenceIndex(clamped)
 
-      stopStream()
       streamingRef.current = false
       if (isUserClick && autoPlay) {
         audioScheduler.clear()
         highlightSync.pause()
         highlightSync.clear()
       } else {
+        stopStream()
         await audioScheduler.pause()
         highlightSync.pause()
         audioScheduler.clear()
@@ -525,18 +553,13 @@ export function ReaderPage() {
 
       if (!isUserClick) {
         resetFollowHighlight()
-      }
-
-      if (clickedWord) {
-        pdfScrollerRef.current?.scrollToPage(clickedWord.pageNum, {
-          onlyIfOffscreen: isUserClick,
-        })
-      } else {
-        const sentence = sentences[clamped]
-        if (sentence) {
-          pdfScrollerRef.current?.scrollToPage(sentence.pageNum, {
-            onlyIfOffscreen: isUserClick,
-          })
+        if (clickedWord) {
+          pdfScrollerRef.current?.scrollToPage(clickedWord.pageNum, { onlyIfOffscreen: false })
+        } else {
+          const sentence = sentences[clamped]
+          if (sentence) {
+            pdfScrollerRef.current?.scrollToPage(sentence.pageNum, { onlyIfOffscreen: false })
+          }
         }
       }
 
@@ -545,12 +568,18 @@ export function ReaderPage() {
         if (autoPlay) {
           pendingClickRef.current = { index: clamped, wordIndex: clickedWord?.globalIndex }
           ensureEngine()
+          if (isUserClick) {
+            toast.info('Loading voice model…', {
+              id: 'tts-loading',
+              description: 'Playback will start as soon as the model is ready.',
+            })
+          }
         } else {
           await audioScheduler.pause()
           setPlaying(false)
           void persist()
+          if (isUserClick) userSeekInProgressRef.current = false
         }
-        if (isUserClick) userSeekInProgressRef.current = false
         return
       }
 
@@ -562,13 +591,25 @@ export function ReaderPage() {
       }
 
       setPlaying(true)
-      await audioScheduler.ensureContext()
+      playbackStartRef.current = Date.now()
+      firstChunkLoggedRef.current = false
+      void audioScheduler.ensureContext().then((ctx) => void ctx.resume())
       const fromWord = clickedWord?.globalIndex
 
       await beginStream(clamped, fromWord)
       if (gen !== playbackGenRef.current) {
         if (isUserClick) userSeekInProgressRef.current = false
         return
+      }
+      if (isUserClick) {
+        if (clickedWord) {
+          pdfScrollerRef.current?.scrollToPage(clickedWord.pageNum, { onlyIfOffscreen: true })
+        } else {
+          const sentence = sentences[clamped]
+          if (sentence) {
+            pdfScrollerRef.current?.scrollToPage(sentence.pageNum, { onlyIfOffscreen: true })
+          }
+        }
       }
       startHighlightSync()
       void persist()
@@ -578,6 +619,7 @@ export function ReaderPage() {
       sentences,
       words,
       isModelReady,
+      engineReady,
       stopStream,
       beginStream,
       startHighlightSync,
@@ -593,8 +635,30 @@ export function ReaderPage() {
     const pending = pendingClickRef.current
     if (!pending || !isEngineReady()) return
     pendingClickRef.current = null
+    toast.dismiss('tts-loading')
     void startFromSentence(pending.index, true, pending.wordIndex)
-  }, [isModelReady, engine, startFromSentence])
+  }, [isModelReady, engineReady, engine, startFromSentence])
+
+  useEffect(() => {
+    if (!isEngineReady() || sentenceTexts.length === 0) return
+    const start = Math.max(0, currentSentenceIndex)
+    const preload: string[] = []
+    for (let i = start; i < Math.min(start + 2, sentenceTexts.length); i++) {
+      const text = sentenceTexts[i]?.trim()
+      if (text) preload.push(text)
+    }
+    if (preload.length > 0) {
+      enableContinuousPrefetch(true)
+      prefetchSynth(preload)
+    }
+  }, [
+    isModelReady,
+    engineReady,
+    sentenceTexts,
+    currentSentenceIndex,
+    enableContinuousPrefetch,
+    prefetchSynth,
+  ])
 
   const handlePlayPause = useCallback(async () => {
     if (!isModelReady || !isEngineReady()) {
@@ -623,7 +687,16 @@ export function ReaderPage() {
       setPlaying(false)
       void persist()
     } else {
-      await startFromSentence(getResumeSentenceIndex(), true)
+      enableContinuousPrefetch(true)
+      const resumeIndex = getResumeSentenceIndex()
+      const sentence = sentences[resumeIndex]
+      const wordIdx =
+        activeWordIndex >= 0 &&
+        sentence &&
+        activeWordIndex > sentence.startWordIndex
+          ? activeWordIndex
+          : undefined
+      await startFromSentence(resumeIndex, true, wordIdx)
     }
   }, [
     isPlaying,
@@ -631,11 +704,14 @@ export function ReaderPage() {
     isModelLoading,
     engine,
     sentenceTexts,
+    sentences,
+    activeWordIndex,
     getResumeSentenceIndex,
     setPlaying,
     stopStream,
     persist,
     startFromSentence,
+    enableContinuousPrefetch,
   ])
 
   useEffect(() => {
@@ -646,6 +722,10 @@ export function ReaderPage() {
 
   const scheduleSeek = useCallback(
     (index: number, autoPlay: boolean, wordIndex?: number) => {
+      if (autoPlay) {
+        void startFromSentence(index, true, wordIndex)
+        return
+      }
       seekCoalesceRef.current = { index, autoPlay, wordIndex }
       queueMicrotask(() => {
         const pending = seekCoalesceRef.current
@@ -722,10 +802,12 @@ export function ReaderPage() {
 
   const handleLineClick = useCallback(
     (sentenceIndex: number, wordIndex: number) => {
+      void audioScheduler.ensureContext().then((ctx) => ctx.resume())
+      enableContinuousPrefetch(false)
       userSeekInProgressRef.current = true
       scheduleSeek(sentenceIndex, true, wordIndex)
     },
-    [scheduleSeek],
+    [scheduleSeek, enableContinuousPrefetch],
   )
 
   const handleVoiceChange = useCallback(
@@ -755,11 +837,14 @@ export function ReaderPage() {
       resetFollowHighlight()
 
       const sentence = sentences[resumeIndex]
-      if (sentence) {
-        setActiveWord(sentence.startWordIndex, sentence.pageNum)
-      }
+      const wordIdx =
+        activeWordIndex >= 0 &&
+        sentence &&
+        activeWordIndex > sentence.startWordIndex
+          ? activeWordIndex
+          : undefined
       setSentenceIndex(resumeIndex)
-      void startFromSentence(resumeIndex, true)
+      void startFromSentence(resumeIndex, true, wordIdx)
     },
     [
       startFromSentence,
@@ -768,10 +853,10 @@ export function ReaderPage() {
       isScanned,
       totalPages,
       isPlaying,
+      activeWordIndex,
       getResumeSentenceIndex,
       stopStream,
       sentences,
-      setActiveWord,
       setSentenceIndex,
       resetFollowHighlight,
     ],
@@ -787,10 +872,11 @@ export function ReaderPage() {
 
   const handleSpeedChange = useCallback(
     (newSpeed: number) => {
+      const safeSpeed = clampPlaybackSpeed(newSpeed)
       clearSynthCache()
-      setSpeed(newSpeed)
-      savePreferences({ speed: newSpeed })
-      audioScheduler.setPlaybackRate(newSpeed)
+      setSpeed(safeSpeed)
+      savePreferences({ speed: safeSpeed })
+      audioScheduler.setPlaybackRate(safeSpeed)
 
       if (docId) {
         void saveMetadata({
@@ -798,7 +884,7 @@ export function ReaderPage() {
           isScanned,
           totalPages,
           voice: usePlayerStore.getState().voice,
-          speed: newSpeed,
+          speed: safeSpeed,
           engine: usePlayerStore.getState().engine,
         })
       }
@@ -826,11 +912,11 @@ export function ReaderPage() {
           break
         case 'ArrowUp':
           e.preventDefault()
-          handleSpeedChange(Math.min(4.5, speed + 0.1))
+          handleSpeedChange(Math.min(MAX_PLAYBACK_SPEED, speed + 0.1))
           break
         case 'ArrowDown':
           e.preventDefault()
-          handleSpeedChange(Math.max(0.5, speed - 0.1))
+          handleSpeedChange(Math.max(MIN_PLAYBACK_SPEED, speed - 0.1))
           break
       }
     }
@@ -865,6 +951,12 @@ export function ReaderPage() {
         pageIndicator={`Page ${activePageNum} of ${totalPages}`}
         onVoiceChange={handleVoiceChange}
       />
+
+      {(isModelLoading || modelError) && (
+        <div className="px-3 pt-2 sm:px-4">
+          <ModelDownloadBanner />
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {isExtracting && isScanned && (

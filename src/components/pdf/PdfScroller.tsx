@@ -24,6 +24,7 @@ interface PdfScrollerProps {
   onUserNavigate?: () => void
   suppressUserNavigateRef?: RefObject<boolean>
   onLineClick?: (sentenceIndex: number, wordIndex: number) => void
+  onLineTouchStart?: (sentenceIndex: number, wordIndex: number) => void
   onEmptyPageClick?: (pageNum: number, x: number, y: number) => void
   onReturnToPlayback?: () => void
   playbackPageNum?: number
@@ -47,6 +48,7 @@ export function PdfScroller({
   onUserNavigate,
   suppressUserNavigateRef,
   onLineClick,
+  onLineTouchStart,
   onEmptyPageClick,
   onReturnToPlayback,
   playbackPageNum,
@@ -60,10 +62,11 @@ export function PdfScroller({
   const userScrolledRef = useRef(false)
   const programmaticScrollUntilRef = useRef(0)
   const lastFollowedPageRef = useRef(-1)
+  const lastFollowedWordRef = useRef(-1)
   const initialScrollDoneRef = useRef(false)
 
-  const markProgrammaticScroll = useCallback(() => {
-    programmaticScrollUntilRef.current = Date.now() + 400
+  const markProgrammaticScroll = useCallback((durationMs = 400) => {
+    programmaticScrollUntilRef.current = Date.now() + durationMs
   }, [])
 
   const [heightEstimatesReady, setHeightEstimatesReady] = useState(false)
@@ -145,6 +148,7 @@ export function PdfScroller({
   useEffect(() => {
     userScrolledRef.current = false
     lastFollowedPageRef.current = -1
+    lastFollowedWordRef.current = -1
   }, [resetFollowKey])
 
   useEffect(() => {
@@ -161,15 +165,50 @@ export function PdfScroller({
     if (activePageNum === lastFollowedPageRef.current) return
     lastFollowedPageRef.current = activePageNum
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    markProgrammaticScroll()
+    markProgrammaticScroll(prefersReducedMotion ? 800 : 1800)
     virtualizer.scrollToIndex(activePageNum - 1, {
       align: 'center',
       behavior: prefersReducedMotion ? 'auto' : 'smooth',
     })
   }, [activePageNum, followHighlight, virtualizer, markProgrammaticScroll])
 
+  useEffect(() => {
+    if (!followHighlight || userScrolledRef.current || !activeWord) return
+    if (activeWord.globalIndex === lastFollowedWordRef.current) return
+
+    const scrollEl = parentRef.current
+    if (!scrollEl) return
+
+    const native = nativePageSizesRef.current.get(activeWord.pageNum)
+    if (!native || columnWidth <= 0) return
+
+    const pageItem = virtualizer
+      .getVirtualItems()
+      .find((item) => item.index + 1 === activeWord.pageNum)
+    if (!pageItem) return
+
+    const scale = Math.min(1, columnWidth / native.width)
+    const wordTop = pageItem.start + activeWord.top * scale
+    const wordBottom = wordTop + activeWord.height * scale
+    const viewportTop = scrollEl.scrollTop
+    const viewportBottom = viewportTop + scrollEl.clientHeight
+    const topComfort = scrollEl.clientHeight * 0.28
+    const bottomComfort = scrollEl.clientHeight * 0.68
+
+    if (wordTop >= viewportTop + topComfort && wordBottom <= viewportTop + bottomComfort) {
+      lastFollowedWordRef.current = activeWord.globalIndex
+      return
+    }
+
+    lastFollowedWordRef.current = activeWord.globalIndex
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    markProgrammaticScroll(prefersReducedMotion ? 400 : 900)
+    virtualizer.scrollToOffset(Math.max(0, wordTop - scrollEl.clientHeight * 0.42), {
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+    })
+  }, [activeWord, columnWidth, followHighlight, virtualizer, markProgrammaticScroll])
+
   const lockUserScroll = useCallback(() => {
-    userScrolledRef.current = true
     markProgrammaticScroll()
   }, [markProgrammaticScroll])
 
@@ -205,7 +244,6 @@ export function PdfScroller({
       if (pageNum < 1 || pageNum > totalPages) return
       const skipped = options?.onlyIfOffscreen && isPageInView(pageNum)
       if (skipped) return
-      userScrolledRef.current = true
       markProgrammaticScroll()
       virtualizer.scrollToIndex(pageNum - 1, { align: 'start', behavior: 'auto' })
     },
@@ -254,6 +292,7 @@ export function PdfScroller({
               activeWord={activeWord}
               activeSentenceWords={activeSentenceWords}
               onLineClick={handleLineClick}
+              onLineTouchStart={onLineTouchStart}
               onEmptyPageClick={onEmptyPageClick}
               onReturnToPlayback={onReturnToPlayback}
               playbackPageNum={playbackPageNum}
@@ -274,6 +313,7 @@ function PdfPageWrapper({
   activeWord,
   activeSentenceWords,
   onLineClick,
+  onLineTouchStart,
   onEmptyPageClick,
   onReturnToPlayback,
   playbackPageNum,
@@ -286,6 +326,7 @@ function PdfPageWrapper({
   activeWord: WordPosition | null
   activeSentenceWords: WordPosition[]
   onLineClick?: (sentenceIndex: number, wordIndex: number) => void
+  onLineTouchStart?: (sentenceIndex: number, wordIndex: number) => void
   onEmptyPageClick?: (pageNum: number, x: number, y: number) => void
   onReturnToPlayback?: () => void
   playbackPageNum?: number
@@ -315,6 +356,7 @@ function PdfPageWrapper({
       activeSentenceWords={pageSentenceWords}
       isVisible={true}
       onLineClick={onLineClick}
+      onLineTouchStart={onLineTouchStart}
       onEmptyPageClick={onEmptyPageClick}
       onReturnToPlayback={onReturnToPlayback}
       playbackPageNum={playbackPageNum}

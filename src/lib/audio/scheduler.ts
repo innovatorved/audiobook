@@ -59,6 +59,11 @@ export class AudioScheduler {
     return this.ctx.currentTime - this.baseTime
   }
 
+  getBufferedAheadSeconds(): number {
+    if (!this.ctx || this.isPaused) return 0
+    return Math.max(0, this.nextStartTime - this.ctx.currentTime)
+  }
+
   onSentenceScheduled(callback: SentenceCallback): void {
     this.onSentenceStart = callback
   }

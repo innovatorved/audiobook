@@ -4,7 +4,12 @@ import {
   switchEngine,
   startTtsStream,
   stopTtsStream,
+  interruptPlaybackOnly,
   prefetchSynthTexts,
+  warmSynthText,
+  peekSynthCache,
+  isSynthWarming,
+  setBackgroundPrefetchEnabled,
 } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 
@@ -15,6 +20,14 @@ export function useTtsWorker() {
 
   const stopStream = useCallback(() => {
     stopTtsStream()
+  }, [])
+
+  const interruptPlayback = useCallback(() => {
+    interruptPlaybackOnly()
+  }, [])
+
+  const warmSynth = useCallback((text: string) => {
+    warmSynthText(text)
   }, [])
 
   const startStream = useCallback(
@@ -38,11 +51,20 @@ export function useTtsWorker() {
     prefetchSynthTexts(texts)
   }, [])
 
+  const enableContinuousPrefetch = useCallback((enabled: boolean) => {
+    setBackgroundPrefetchEnabled(enabled)
+  }, [])
+
   return {
     ensureEngine,
     startStream,
     stopStream,
+    interruptPlayback,
     prefetchSynth,
+    warmSynth,
+    peekCache: peekSynthCache,
+    isWarming: isSynthWarming,
+    enableContinuousPrefetch,
     isEngineReady,
   }
 }

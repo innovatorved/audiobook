@@ -6,7 +6,7 @@ import { usePlayerStore, type ModelLoadStatus } from '@/stores/playerStore'
 
 const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
 const FIRST_STREAM_WINDOW = 1
-const CONTINUE_STREAM_WINDOW = 3
+const CONTINUE_STREAM_WINDOW = 4
 const ENGINE_BYTES = 43 * 1024 * 1024
 
 type ChunkHandler = (chunk: {
@@ -38,10 +38,18 @@ let onChunkRef: ChunkHandler | null = null
 let loadInFlight = false
 let kittenPreload: KittenPreload | null = null
 let currentStreamId = 0
+let acceptedStreamId = -1
 let streamContext: StreamContext | null = null
 let switchToken = 0
 let prefetchId = 0
 const prefetchInFlight = new Set<string>()
+const prefetchById = new Map<
+  number,
+  { key: string; voice: string; speed: number; text: string }
+>()
+
+const WARMUP_STREAM_ID = -9999
+let warmupSent = false
 
 type CachedChunk = {
   text: string
@@ -50,10 +58,33 @@ type CachedChunk = {
 }
 
 const SYNTH_CACHE_MAX = 96
+const MAX_PREFETCH_IN_FLIGHT = 1
+let backgroundPrefetchEnabled = false
 const synthCache = new Map<string, CachedChunk>()
 
 function synthCacheKey(voice: string, speed: number, text: string): string {
   return `kitten|${voice}|${speed}|${text}`
+}
+
+async function waitForSynthCache(
+  voice: string,
+  speed: number,
+  text: string,
+  maxMs = 100,
+): Promise<CachedChunk | undefined> {
+  const key = synthCacheKey(voice, speed, text)
+  const existing = synthCache.get(key)
+  if (existing) return existing
+  if (!prefetchInFlight.has(key)) return undefined
+
+  const deadline = Date.now() + maxMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    const hit = synthCache.get(key)
+    if (hit) return hit
+    if (!prefetchInFlight.has(key)) break
+  }
+  return synthCache.get(key)
 }
 
 function rememberSynthChunk(
@@ -104,6 +135,8 @@ function applyError(message: string): void {
   console.error('[TTS]', message)
   loadInFlight = false
   loading = false
+  loaded = false
+  getStore().setEngineReady(false)
   getStore().setModelError(message)
 }
 
@@ -164,26 +197,57 @@ function handleWorkerMessage(event: MessageEvent): void {
       loaded = true
       loading = false
       loadInFlight = false
+      getStore().setEngineReady(true)
       getWorker().postMessage({ type: 'listVoices' })
       break
     case 'voices':
       syncVoiceWithEngineVoices(data.voices)
       getStore().setModelReady(true)
+      if (!warmupSent && worker) {
+        warmupSent = true
+        const store = getStore()
+        const voice = resolveVoiceForEngine(store.voices, store.voice)
+        worker.postMessage({
+          type: 'stream',
+          chunks: ['Hello.'],
+          voice,
+          speed: store.speed,
+          startIndex: 0,
+          windowSize: 1,
+          streamId: WARMUP_STREAM_ID,
+        })
+      }
       break
     case 'prefetchChunk': {
-      const ctx = streamContext
-      const voice = ctx?.voice ?? getStore().voice
-      const speed = ctx?.speed ?? getStore().speed
+      const meta = prefetchById.get(data.prefetchId)
+      const voice = meta?.voice ?? getStore().voice
+      const speed = meta?.speed ?? getStore().speed
+      const text = meta?.text ?? data.text
       rememberSynthChunk(voice, speed, data.text, {
         text: data.text,
         pcm: data.pcm,
         sampleRate: data.sampleRate,
       })
-      prefetchInFlight.delete(synthCacheKey(voice, speed, data.text))
+      prefetchInFlight.delete(meta?.key ?? synthCacheKey(voice, speed, text))
+      prefetchById.delete(data.prefetchId)
+      break
+    }
+    case 'prefetchDone':
+    case 'prefetchError': {
+      const meta = prefetchById.get(data.prefetchId)
+      if (meta) {
+        prefetchInFlight.delete(meta.key)
+        prefetchById.delete(data.prefetchId)
+      }
       break
     }
     case 'chunk':
-      if (data.streamId !== currentStreamId) break
+      if (data.streamId === WARMUP_STREAM_ID) {
+        break
+      }
+      if (data.streamId !== acceptedStreamId) {
+        break
+      }
       if (streamContext) {
         const { voice, speed } = streamContext
         rememberSynthChunk(voice, speed, data.text, {
@@ -195,7 +259,7 @@ function handleWorkerMessage(event: MessageEvent): void {
       void Promise.resolve(onChunkRef?.(data))
       break
     case 'done':
-      if (data.streamId !== currentStreamId || !streamContext) break
+      if (data.streamId !== acceptedStreamId || !streamContext) break
       streamContext.nextIndex = data.nextIndex
       streamContext.windowSize = CONTINUE_STREAM_WINDOW
       if (streamContext.nextIndex < streamContext.chunks.length) {
@@ -205,12 +269,7 @@ function handleWorkerMessage(event: MessageEvent): void {
       }
       break
     case 'error':
-      if (loading) {
-        loading = false
-        applyError(data.message)
-      } else {
-        console.warn('[TTS] playback error:', data.message)
-      }
+      applyError(data.message ?? 'TTS worker error')
       break
   }
 }
@@ -256,7 +315,11 @@ export function getLoadingEngine(): 'kitten' | null {
 let loadPromise: Promise<void> | null = null
 
 export async function switchEngine(_engineType: 'kitten' = 'kitten'): Promise<void> {
-  if (loaded && getStore().isModelReady) {
+  if (loaded && worker) {
+    const store = getStore()
+    if (!store.isModelReady) {
+      getWorker().postMessage({ type: 'listVoices' })
+    }
     return
   }
 
@@ -333,38 +396,74 @@ async function switchEngineWork(): Promise<void> {
 }
 
 export function isEngineReady(): boolean {
+  return loaded && !!worker && getStore().engineReady && getStore().isModelReady
+}
+
+export function setBackgroundPrefetchEnabled(enabled: boolean): void {
+  backgroundPrefetchEnabled = enabled
+}
+
+export function peekSynthCache(text: string): CachedChunk | undefined {
   const store = getStore()
-  if (loaded) return true
-  return store.isModelReady
+  const trimmed = text.trim()
+  if (!trimmed) return undefined
+  const voice = resolveVoiceForEngine(store.voices, store.voice)
+  return synthCache.get(synthCacheKey(voice, store.speed, trimmed))
+}
+
+export function isSynthWarming(text: string): boolean {
+  const store = getStore()
+  const trimmed = text.trim()
+  if (!trimmed) return false
+  const voice = resolveVoiceForEngine(store.voices, store.voice)
+  return prefetchInFlight.has(synthCacheKey(voice, store.speed, trimmed))
+}
+
+export function warmSynthText(text: string): void {
+  prefetchSynthTexts([text])
+}
+
+export function interruptPlaybackOnly(): void {
+  acceptedStreamId = -1
+  streamContext = null
 }
 
 export function prefetchSynthTexts(texts: string[]): void {
+  if (!backgroundPrefetchEnabled) return
+  if (!loaded || !worker) return
   const store = getStore()
-  if (!loaded || !store.isModelReady || !worker) return
-
   const voice = resolveVoiceForEngine(store.voices, store.voice)
   const speed = store.speed
-
-  for (const text of texts) {
-    const trimmed = text?.trim()
+  for (const raw of texts) {
+    if (prefetchInFlight.size >= MAX_PREFETCH_IN_FLIGHT) return
+    const trimmed = raw?.trim()
     if (!trimmed) continue
     const key = synthCacheKey(voice, speed, trimmed)
     if (synthCache.has(key) || prefetchInFlight.has(key)) continue
     prefetchInFlight.add(key)
+    prefetchId++
+    prefetchById.set(prefetchId, { key, voice, speed, text: trimmed })
     worker.postMessage({
       type: 'prefetch',
       text: trimmed,
       voice,
       speed,
-      prefetchId: ++prefetchId,
+      prefetchId,
     })
   }
 }
 
-export function stopTtsStream(): void {
+function assignStreamId(): number {
   currentStreamId++
+  acceptedStreamId = currentStreamId
+  return acceptedStreamId
+}
+
+export function stopTtsStream(): void {
+  acceptedStreamId = -1
   streamContext = null
   prefetchInFlight.clear()
+  prefetchById.clear()
   worker?.postMessage({ type: 'stop' })
 }
 
@@ -376,35 +475,40 @@ export async function startTtsStream(
   onChunk: ChunkHandler,
 ): Promise<void> {
   const store = getStore()
+  if (!loaded || !worker) {
+    throw new Error('TTS engine is not loaded')
+  }
+
   const resolvedVoice = resolveVoiceForEngine(store.voices, voice)
   if (resolvedVoice !== voice) {
     store.setVoice(resolvedVoice)
     voice = resolvedVoice
   }
 
-  stopTtsStream()
-  currentStreamId++
-  const streamId = currentStreamId
-  onChunkRef = onChunk
-
   if (startIndex >= chunks.length) {
     streamContext = null
     return
   }
 
+  const startText = chunks[startIndex]?.trim() ?? ''
+  const cacheKey = startText ? synthCacheKey(voice, speed, startText) : ''
+
+  onChunkRef = onChunk
+  streamContext = null
+
+  let cached = cacheKey ? synthCache.get(cacheKey) : undefined
+  if (!cached && cacheKey && prefetchInFlight.has(cacheKey)) {
+    cached = await waitForSynthCache(voice, speed, startText)
+  }
   let nextIndex = startIndex
-  const startText = chunks[startIndex]
-  if (startText?.trim()) {
-    const cached = synthCache.get(synthCacheKey(voice, speed, startText))
-    if (cached) {
-      await onChunk({
-        text: cached.text,
-        pcm: cached.pcm,
-        sampleRate: cached.sampleRate,
-        sentenceIndex: startIndex,
-      })
-      nextIndex = startIndex + 1
-    }
+  if (cached) {
+    await onChunk({
+      text: cached.text,
+      pcm: cached.pcm,
+      sampleRate: cached.sampleRate,
+      sentenceIndex: startIndex,
+    })
+    nextIndex = startIndex + 1
   }
 
   if (nextIndex >= chunks.length) {
@@ -412,13 +516,15 @@ export async function startTtsStream(
     return
   }
 
+  const streamId = assignStreamId()
   streamContext = {
     chunks,
     voice,
     speed,
     nextIndex,
     streamId,
-    windowSize: FIRST_STREAM_WINDOW,
+    windowSize: chunks.length === 1 ? 1 : FIRST_STREAM_WINDOW,
   }
   postStreamWindow()
 }
+

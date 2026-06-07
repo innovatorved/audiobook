@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react'
 import { Slider } from '@/components/ui/slider'
 import { VoicePicker } from '@/components/player/VoicePicker'
+import {
+  MAX_PLAYBACK_SPEED,
+  MIN_PLAYBACK_SPEED,
+  PLAYBACK_SPEED_STEP,
+  clampPlaybackSpeed,
+} from '@/lib/audio/speed'
 import { rememberVoice, savePreferences } from '@/lib/preferences'
 import { usePlayerStore } from '@/stores/playerStore'
 
@@ -63,15 +69,16 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
         />
       </SettingRow>
 
-      <SettingRow label="Speed" value={`${speed.toFixed(1)}×`}>
+      <SettingRow label="Speed" value={`${clampPlaybackSpeed(speed).toFixed(1)}×`}>
         <Slider
-          min={0.5}
-          max={4.5}
-          step={0.1}
-          value={[speed]}
+          min={MIN_PLAYBACK_SPEED}
+          max={MAX_PLAYBACK_SPEED}
+          step={PLAYBACK_SPEED_STEP}
+          value={[clampPlaybackSpeed(speed)]}
           onValueChange={([v]) => {
-            setSpeed(v)
-            savePreferences({ speed: v })
+            const nextSpeed = clampPlaybackSpeed(v)
+            setSpeed(nextSpeed)
+            savePreferences({ speed: nextSpeed })
           }}
           aria-label="Playback speed"
           className="w-full"

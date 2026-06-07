@@ -1,5 +1,6 @@
 import { usePlayerStore } from '@/stores/playerStore'
 import type { VoiceInfo } from '@/lib/types'
+import { clampPlaybackSpeed } from '@/lib/audio/speed'
 
 const STORAGE_KEY = 'audiobook-prefs'
 const DEFAULT_VOICE = 'Bella'
@@ -34,7 +35,7 @@ export function loadPreferences(): UserPreferences {
     const legacyVoice = parsed.voiceByEngine?.kitten
     return {
       voice: normalizeVoice(parsed.voice ?? legacyVoice),
-      speed: parsed.speed ?? DEFAULT_PREFERENCES.speed,
+      speed: clampPlaybackSpeed(parsed.speed ?? DEFAULT_PREFERENCES.speed),
       volume: parsed.volume ?? DEFAULT_PREFERENCES.volume,
     }
   } catch {
@@ -46,7 +47,7 @@ export function savePreferences(patch: Partial<UserPreferences>): UserPreference
   const current = loadPreferences()
   const next: UserPreferences = {
     voice: patch.voice ? normalizeVoice(patch.voice) : current.voice,
-    speed: patch.speed ?? current.speed,
+    speed: clampPlaybackSpeed(patch.speed ?? current.speed),
     volume: patch.volume ?? current.volume,
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next))

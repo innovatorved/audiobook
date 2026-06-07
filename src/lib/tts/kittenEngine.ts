@@ -1,7 +1,7 @@
 import { loadNpz } from '@/lib/tts/npzLoader'
 import { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
 import type { ProgressCallback, VoiceInfo } from '@/lib/types'
-import type { TtsEngine, TtsStreamChunk } from '@/lib/tts/engine'
+import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engine'
 
 const ESTIMATED_BYTES = 43 * 1024 * 1024
 
@@ -20,7 +20,18 @@ async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
     mjs: `${base}ort-wasm-simd-threaded.mjs`,
     wasm: `${base}ort-wasm-simd-threaded.wasm`,
   }
-  ort.env.wasm.numThreads = 1
+  // Enable WASM threading when the page is cross-origin-isolated and
+  // SharedArrayBuffer is available. Falls back to single-thread on platforms
+  // (older iOS Safari, certain mobile WebViews) where SAB isn't usable.
+  const threadCapable =
+    typeof SharedArrayBuffer !== 'undefined' &&
+    typeof crossOriginIsolated !== 'undefined' &&
+    crossOriginIsolated === true
+  const hwThreads =
+    typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number'
+      ? navigator.hardwareConcurrency
+      : 2
+  ort.env.wasm.numThreads = threadCapable ? Math.max(1, Math.min(hwThreads, 4)) : 1
   ort.env.wasm.simd = true
   ort.env.wasm.proxy = false
   return ort
@@ -53,15 +64,18 @@ export class KittenEngine implements TtsEngine {
 
   async *stream(
     chunks: string[],
-    opts: { voice: string; speed: number },
+    opts: TtsStreamOptions,
   ): AsyncIterable<TtsStreamChunk> {
     if (!this.tts) throw new Error('Kitten TTS not loaded')
 
     for (const text of chunks) {
+      if (opts.shouldAbort?.()) return
       const audio = await this.tts.generate(text, {
         voice: opts.voice,
         speed: opts.speed,
+        shouldAbort: opts.shouldAbort,
       })
+      if (opts.shouldAbort?.()) return
       yield {
         text,
         pcm: audio.data,

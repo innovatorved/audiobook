@@ -37,43 +37,109 @@ function hfUrl(repoId: string, filename: string): string {
   return `${HF_BASE}/${repoId}/resolve/main/${filename}`
 }
 
+const TOTAL_TIMEOUT_MS = 60_000
+const NO_PROGRESS_TIMEOUT_MS = 20_000
+const RETRY_ATTEMPTS = 3
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504])
+
+class HttpStatusError extends Error {
+  status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function fetchWithProgress(
   url: string,
   onBytes: (loaded: number, total: number) => void,
 ): Promise<ArrayBuffer> {
-  const resp = await fetch(url)
-  if (!resp.ok) {
-    throw new Error(`HTTP ${resp.status} downloading ${url.split('/').pop() ?? 'model file'}`)
+  const controller = new AbortController()
+  const totalTimer = setTimeout(
+    () => controller.abort(new Error(`Download timeout after ${TOTAL_TIMEOUT_MS}ms`)),
+    TOTAL_TIMEOUT_MS,
+  )
+  let progressTimer: ReturnType<typeof setTimeout> | null = null
+  const resetProgressTimer = () => {
+    if (progressTimer) clearTimeout(progressTimer)
+    progressTimer = setTimeout(
+      () => controller.abort(new Error(`No download progress for ${NO_PROGRESS_TIMEOUT_MS}ms`)),
+      NO_PROGRESS_TIMEOUT_MS,
+    )
   }
 
-  const contentLength = Number(resp.headers.get('content-length') ?? 0)
-  const body = resp.body
-  if (!body) {
-    const buffer = await resp.arrayBuffer()
-    onBytes(buffer.byteLength, contentLength || buffer.byteLength)
-    return buffer
-  }
+  try {
+    resetProgressTimer()
+    const resp = await fetch(url, { signal: controller.signal })
+    if (!resp.ok) {
+      throw new HttpStatusError(
+        resp.status,
+        `HTTP ${resp.status} downloading ${url.split('/').pop() ?? 'model file'}`,
+      )
+    }
 
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let loaded = 0
-  onBytes(0, contentLength || 0)
+    const contentLength = Number(resp.headers.get('content-length') ?? 0)
+    const body = resp.body
+    if (!body) {
+      const buffer = await resp.arrayBuffer()
+      onBytes(buffer.byteLength, contentLength || buffer.byteLength)
+      return buffer
+    }
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    chunks.push(value)
-    loaded += value.byteLength
-    onBytes(loaded, contentLength || Math.max(loaded, contentLength))
-  }
+    const reader = body.getReader()
+    const chunks: Uint8Array[] = []
+    let loaded = 0
+    onBytes(0, contentLength || 0)
 
-  const buffer = new Uint8Array(loaded)
-  let offset = 0
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset)
-    offset += chunk.byteLength
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      resetProgressTimer()
+      chunks.push(value)
+      loaded += value.byteLength
+      onBytes(loaded, contentLength || Math.max(loaded, contentLength))
+    }
+
+    const buffer = new Uint8Array(loaded)
+    let offset = 0
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+    return buffer.buffer
+  } finally {
+    clearTimeout(totalTimer)
+    if (progressTimer) clearTimeout(progressTimer)
   }
-  return buffer.buffer
+}
+
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof HttpStatusError) return RETRYABLE_STATUS.has(err.status)
+  // TypeError → network failure; AbortError → timeout (both worth retrying).
+  if (err instanceof TypeError) return true
+  if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('timeout'))) {
+    return true
+  }
+  return false
+}
+
+async function fetchWithRetry(
+  url: string,
+  onBytes: (loaded: number, total: number) => void,
+): Promise<ArrayBuffer> {
+  let lastErr: unknown
+  let delay = 1000
+  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await fetchWithProgress(url, onBytes)
+    } catch (err) {
+      lastErr = err
+      if (attempt === RETRY_ATTEMPTS || !isRetryableError(err)) break
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      delay *= 3
+    }
+  }
+  throw lastErr
 }
 
 async function fetchCached(
@@ -89,7 +155,7 @@ async function fetchCached(
   }
 
   const url = hfUrl(repoId, filename)
-  const buffer = await fetchWithProgress(url, (loaded, total) => {
+  const buffer = await fetchWithRetry(url, (loaded, total) => {
     onFileProgress(loaded, total, false)
   })
   await cacheSet(cacheKey, buffer)

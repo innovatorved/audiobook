@@ -1,6 +1,15 @@
 /** Shared scale for PDF render, text extraction, and highlight coordinates. */
 export const PDF_RENDER_SCALE = 1.5
 
+/** Vertical tolerance when grouping words into the same line (px). */
+export const LINE_TOLERANCE = 8
+
+/** Skip sentences whose words mostly sit in the top band of a page. */
+export const PAGE_HEADER_BAND_RATIO = 0.08
+
+/** Skip sentences whose words mostly sit in the bottom band of a page. */
+export const PAGE_FOOTER_BAND_RATIO = 0.88
+
 /** Vertical band for highlight rects — top-anchored, not full font box. */
 export const HIGHLIGHT_HEIGHT_RATIO = 0.85
 

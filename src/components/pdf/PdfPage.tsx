@@ -16,6 +16,7 @@ interface PdfPageProps {
   pageWords: WordPosition[]
   isVisible: boolean
   onLineClick?: (sentenceIndex: number, wordIndex: number) => void
+  onLineTouchStart?: (sentenceIndex: number, wordIndex: number) => void
   onEmptyPageClick?: (pageNum: number, x: number, y: number) => void
   onReturnToPlayback?: () => void
   playbackPageNum?: number
@@ -44,6 +45,7 @@ export function PdfPage({
   pageWords,
   isVisible,
   onLineClick,
+  onLineTouchStart,
   onEmptyPageClick,
   onReturnToPlayback,
   playbackPageNum,
@@ -133,12 +135,29 @@ export function PdfPage({
       ? showActiveWord
       : null
 
+  const pointFromClient = (clientX: number, clientY: number, target: HTMLDivElement) => {
+    const rect = target.getBoundingClientRect()
+    return {
+      x: (clientX - rect.left) / displayScale,
+      y: (clientY - rect.top) / displayScale,
+    }
+  }
+
+  const handlePageTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!onLineTouchStart) return
+    if (nativeWidth <= 0 || displayScale <= 0) return
+    const touch = event.touches[0]
+    if (!touch) return
+    const { x, y } = pointFromClient(touch.clientX, touch.clientY, event.currentTarget)
+    const word = findClickTargetAtPoint(pageWords, x, y)
+    if (!word) return
+    onLineTouchStart(word.sentenceIndex, word.globalIndex)
+  }
+
   const handlePageClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!onLineClick) return
     if (nativeWidth <= 0 || displayScale <= 0) return
-    const rect = event.currentTarget.getBoundingClientRect()
-    const x = (event.clientX - rect.left) / displayScale
-    const y = (event.clientY - rect.top) / displayScale
+    const { x, y } = pointFromClient(event.clientX, event.clientY, event.currentTarget)
 
     if (pageWords.length === 0) {
       onEmptyPageClick?.(pageNum, x, y)
@@ -157,6 +176,7 @@ export function PdfPage({
         className={`reader-page relative mx-auto overflow-hidden rounded-xl transition-smooth ${onLineClick ? 'cursor-pointer hover:brightness-[1.01]' : ''}`}
         style={pageStyle}
         onClick={onLineClick ? handlePageClick : undefined}
+        onTouchStart={onLineTouchStart ? handlePageTouchStart : undefined}
       >
         {showSkeleton && (
           <Skeleton className="absolute inset-0 rounded-md" />
