@@ -71,7 +71,7 @@ async function createEngine(type: TtsEngineType): Promise<TtsEngine> {
       return new KokoroEngine()
     }
     case 'piper': {
-      const { PiperEngine } = await import('@/lib/tts/piperEngine')
+      const { PiperEngine } = await import('@/lib/tts/engines/piper')
       return new PiperEngine()
     }
     case 'kitten':

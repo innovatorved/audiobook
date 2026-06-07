@@ -6,7 +6,8 @@
   "scripts": {
     "sync:ort": "node scripts/sync-ort-wasm.mjs",
     "dev": "bun run sync:ort && bunx --bun vite",
-    "build": "tsc --noEmit && bun run sync:ort && bunx --bun vite build",
+    "build": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && node scripts/production-build.mjs",
+    "build:pages": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && CF_PAGES=1 node scripts/production-build.mjs",
     "lint": "eslint .",
     "preview": "bunx --bun vite preview"
   },

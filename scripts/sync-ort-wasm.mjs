@@ -6,12 +6,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const srcDir = path.join(root, 'node_modules/onnxruntime-web/dist')
 const destDir = path.join(root, 'public/ort')
 
-const files = [
-  'ort-wasm-simd-threaded.wasm',
-  'ort-wasm-simd-threaded.mjs',
-  'ort-wasm-simd-threaded.jsep.wasm',
-  'ort-wasm-simd-threaded.jsep.mjs',
-]
+// Cloudflare Pages limits static files to 25 MiB. Use the 12 MiB threaded build only (no JSEP).
+const files = ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']
 
 mkdirSync(destDir, { recursive: true })
 for (const file of files) {

@@ -36,9 +36,25 @@ bun run preview
 - pdfjs-dist v6, kitten-tts-js, kokoro-js, piper-tts-web
 - tesseract.js v7, dexie, zustand, @tanstack/react-virtual
 
-## Deployment
+## Deployment (Cloudflare Pages)
 
-Serve the `dist/` folder as a static SPA. **Required headers** for WASM threading:
+Cloudflare Pages rejects static files over **25 MiB**. Use the Pages build script:
+
+| Setting | Value |
+|---|---|
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Node version | 22.12+ |
+
+The build script auto-detects Cloudflare Pages (`CF_PAGES_BRANCH`, etc.) and skips Piper assets over the 25 MiB limit. Headers and SPA routing are in `public/_headers` and `public/_redirects`.
+
+```bash
+npm run build          # auto-detects CF Pages in CI
+npm run build:pages    # force Pages-safe build locally
+npx wrangler pages deploy dist --project-name=audiobook
+```
+
+For other static hosts, run `npm run build` and serve `dist/` with these headers:
 
 ```
 Cross-Origin-Opener-Policy: same-origin
