@@ -7,6 +7,7 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { PlayerSettings } from '@/components/player/PlayerSettings'
+import { cn } from '@/lib/utils'
 
 interface SettingsSheetProps {
   trigger: React.ReactNode
@@ -23,7 +24,12 @@ export function SettingsSheet({ trigger, onVoiceChange }: SettingsSheetProps) {
       <SheetContent
         side={side}
         showCloseButton
-        className="flex max-h-[min(92dvh,640px)] flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]"
+        className={cn(
+          'flex flex-col gap-0 p-0',
+          isDesktop
+            ? 'h-dvh max-h-dvh'
+            : 'h-[92dvh] max-h-[92dvh] rounded-t-3xl pb-[env(safe-area-inset-bottom)]',
+        )}
       >
         <SheetHeader className="shrink-0 border-b border-border px-6 py-5 text-left">
           <SheetTitle className="text-base font-semibold">Settings</SheetTitle>
