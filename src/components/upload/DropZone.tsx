@@ -58,10 +58,8 @@ export function DropZone({ className }: DropZoneProps) {
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
       className={cn(
-        'block cursor-pointer rounded-lg border bg-card transition-smooth focus-within:ring-2 focus-within:ring-ring',
-        isDragging
-          ? 'border-primary bg-background'
-          : 'border-border hover:border-primary/50',
+        'surface-panel block cursor-pointer transition-smooth focus-within:ring-2 focus-within:ring-ring/50',
+        isDragging ? 'bg-background shadow-md' : 'hover:shadow-md',
         isUploading && 'pointer-events-none opacity-70',
         className,
       )}

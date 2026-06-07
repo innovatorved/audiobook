@@ -11,7 +11,7 @@ interface TopBarProps {
 
 export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-5">
+    <header className="chrome-bar sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 px-3 pt-[env(safe-area-inset-top)] sm:px-5">
       <div className="flex min-w-0 items-center gap-2">
         <Button variant="ghost" size="icon" className="size-9 shrink-0" asChild>
           <Link to="/" aria-label="Back to library">

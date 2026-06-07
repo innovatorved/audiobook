@@ -30,9 +30,9 @@ function DocCard({ doc }: { doc: DocumentRecord & { progressPct?: number; totalP
   return (
     <Link
       to={`/read/${doc.docId}`}
-      className="block w-full rounded-lg border border-border bg-card transition-smooth hover:border-primary/50 active:scale-[0.99]"
+      className="block w-full transition-smooth hover:bg-muted/35 active:bg-muted/50"
     >
-      <div className="flex min-h-[4.5rem] w-full items-center gap-4 px-4 py-5 sm:px-5 sm:py-6">
+      <div className="flex min-h-[4.5rem] w-full items-center gap-4 px-4 py-4 sm:px-5 sm:py-5">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
           <FileText className="size-4" />
         </div>
@@ -89,7 +89,7 @@ export function HomePage() {
     <div className="home-hero flex-1 overflow-y-auto">
       <div className="mx-auto max-w-2xl px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-12">
         <div className="text-center sm:text-left">
-          <p className="text-xs font-medium uppercase tracking-wider text-primary">Private · Offline-ready</p>
+          <p className="text-xs text-muted-foreground">Private · works offline</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             Turn PDFs into audiobooks
           </h1>
@@ -109,14 +109,14 @@ export function HomePage() {
         {docs.length > 0 ? (
           <section className="mt-8">
             <h2 className="text-sm font-medium text-muted-foreground">Continue reading</h2>
-            <div className="mt-3 flex w-full flex-col gap-2">
+            <div className="surface-panel mt-3 divide-y divide-foreground/6 overflow-hidden">
               {docs.map((doc) => (
                 <DocCard key={doc.docId} doc={doc} />
               ))}
             </div>
           </section>
         ) : (
-          <p className="mt-8 rounded-xl border border-dashed border-border bg-card/50 px-4 py-8 text-center text-sm text-muted-foreground">
+          <p className="mt-8 text-center text-sm text-muted-foreground">
             No documents yet — upload a PDF above to get started.
           </p>
         )}

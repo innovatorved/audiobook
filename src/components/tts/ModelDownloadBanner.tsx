@@ -40,7 +40,7 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   return (
     <div className={cn('space-y-2', className)}>
       {showProgress && (
-        <div className="rounded-xl border border-border bg-card px-4 py-3">
+        <div className="surface-panel px-4 py-3">
           <div className="flex items-center gap-2">
             <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
             <p className="text-sm text-muted-foreground">
