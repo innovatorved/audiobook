@@ -1,6 +1,5 @@
 import { execSync } from 'node:child_process'
 
-/** Cloudflare Pages sets these during CI builds. */
 export function isCloudflarePages() {
   return (
     process.env.CF_PAGES === '1' ||

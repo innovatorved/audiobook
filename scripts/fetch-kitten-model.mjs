@@ -1,13 +1,4 @@
-/**
- * Downloads the Kitten TTS model files from Hugging Face once at build time
- * and writes them into public/kitten-model/. Files larger than the Cloudflare
- * Pages 25 MiB per-file limit are split into chunks. A manifest.json describes
- * the layout so the browser can reassemble them.
- *
- * This eliminates runtime CORS/CORP/CDN-redirect issues by serving everything
- * same-origin from the deployed site.
- */
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,8 +10,35 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = path.join(root, 'public', 'kitten-model')
 const manifestPath = path.join(outDir, 'manifest.json')
 
-if (existsSync(manifestPath)) {
-  console.log('[kitten-model] manifest.json present, skipping download')
+function modelFilesReady() {
+  if (!existsSync(manifestPath)) return false
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    for (const [file, meta] of Object.entries(manifest.files ?? {})) {
+      const parts = Number(meta.parts)
+      const size = Number(meta.size)
+      if (!Number.isFinite(parts) || !Number.isFinite(size) || parts < 1) return false
+      if (parts === 1) {
+        if (!existsSync(path.join(outDir, file))) return false
+        if (statSync(path.join(outDir, file)).size !== size) return false
+        continue
+      }
+      let total = 0
+      for (let i = 0; i < parts; i++) {
+        const chunkPath = path.join(outDir, `${file}.part${i}`)
+        if (!existsSync(chunkPath)) return false
+        total += statSync(chunkPath).size
+      }
+      if (total !== size) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+if (modelFilesReady()) {
+  console.log('[kitten-model] files present, skipping download')
   process.exit(0)
 }
 
@@ -49,7 +67,7 @@ for (const file of FILES) {
       writeFileSync(path.join(outDir, `${file}.part${i}`), chunk)
     }
     manifest.files[file] = { size: buf.length, parts }
-    console.log(`[kitten-model]   ${file} = ${mib} MiB → ${parts} parts`)
+    console.log(`[kitten-model]   ${file} = ${mib} MiB -> ${parts} parts`)
   } else {
     writeFileSync(path.join(outDir, file), buf)
     manifest.files[file] = { size: buf.length, parts: 1 }

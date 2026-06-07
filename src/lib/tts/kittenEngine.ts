@@ -20,15 +20,7 @@ async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
     mjs: `${base}ort-wasm-simd-threaded.mjs`,
     wasm: `${base}ort-wasm-simd-threaded.wasm`,
   }
-  const threadCapable =
-    typeof SharedArrayBuffer !== 'undefined' &&
-    typeof crossOriginIsolated !== 'undefined' &&
-    crossOriginIsolated === true
-  const hwThreads =
-    typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number'
-      ? navigator.hardwareConcurrency
-      : 2
-  ort.env.wasm.numThreads = threadCapable ? Math.max(1, Math.min(hwThreads, 4)) : 1
+  ort.env.wasm.numThreads = 1
   ort.env.wasm.simd = true
   ort.env.wasm.proxy = false
   ort.env.wasm.initTimeout = 30_000

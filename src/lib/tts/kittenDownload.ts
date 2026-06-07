@@ -1,11 +1,3 @@
-/**
- * Same-origin loader for the Kitten TTS model bundled into /kitten-model/.
- * The build step (scripts/fetch-kitten-model.mjs) downloads the model from
- * Hugging Face and writes it (plus a manifest) into public/kitten-model/.
- * Runtime never hits a third-party origin, so there are no CORS, CORP, or
- * CDN-redirect issues.
- */
-
 const MODEL_BASE = '/kitten-model'
 
 export type KittenDownloadProgress = {
@@ -78,7 +70,7 @@ export async function downloadKittenModel(
   const manifestResp = await fetch(`${MODEL_BASE}/manifest.json`)
   if (!manifestResp.ok) {
     throw new Error(
-      'Voice model bundle missing — rebuild required (npm run build downloads it).',
+      'Voice model bundle missing. Rebuild and redeploy with npm run build.',
     )
   }
   const manifest = (await manifestResp.json()) as Manifest
