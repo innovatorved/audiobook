@@ -42,6 +42,7 @@ let acceptedStreamId = -1
 let streamContext: StreamContext | null = null
 let switchToken = 0
 let prefetchId = 0
+let loadWatchdog: ReturnType<typeof setTimeout> | null = null
 const prefetchInFlight = new Set<string>()
 const prefetchById = new Map<
   number,
@@ -114,6 +115,13 @@ function getStore() {
   return usePlayerStore.getState()
 }
 
+function clearLoadWatchdog(): void {
+  if (loadWatchdog) {
+    clearTimeout(loadWatchdog)
+    loadWatchdog = null
+  }
+}
+
 function applyProgress(
   loadedBytes: number,
   total: number,
@@ -133,9 +141,12 @@ function applyProgress(
 
 function applyError(message: string): void {
   console.error('[TTS]', message)
+  clearLoadWatchdog()
   loadInFlight = false
   loading = false
   loaded = false
+  worker?.terminate()
+  worker = null
   getStore().setEngineReady(false)
   getStore().setModelError(message)
 }
@@ -194,11 +205,13 @@ function handleWorkerMessage(event: MessageEvent): void {
       break
     }
     case 'ready':
+      clearLoadWatchdog()
       loaded = true
       loading = false
       loadInFlight = false
       getStore().setEngineReady(true)
-      getWorker().postMessage({ type: 'listVoices' })
+      applyProgress(ENGINE_BYTES, ENGINE_BYTES, 'ready')
+      getStore().setModelReady(true)
       break
     case 'voices':
       syncVoiceWithEngineVoices(data.voices)
@@ -295,6 +308,10 @@ function kittenBuffersUsable(preload: KittenPreload): boolean {
 async function startLoad(preload: KittenPreload): Promise<void> {
   const modelCopy = preload.modelBuffer.slice(0)
   const voicesCopy = preload.voicesBuffer.slice(0)
+  clearLoadWatchdog()
+  loadWatchdog = setTimeout(() => {
+    applyError('Voice engine preparation timed out. Please retry.')
+  }, 35_000)
   getWorker().postMessage(
     {
       type: 'load',

@@ -20,9 +20,6 @@ async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
     mjs: `${base}ort-wasm-simd-threaded.mjs`,
     wasm: `${base}ort-wasm-simd-threaded.wasm`,
   }
-  // Enable WASM threading when the page is cross-origin-isolated and
-  // SharedArrayBuffer is available. Falls back to single-thread on platforms
-  // (older iOS Safari, certain mobile WebViews) where SAB isn't usable.
   const threadCapable =
     typeof SharedArrayBuffer !== 'undefined' &&
     typeof crossOriginIsolated !== 'undefined' &&
@@ -34,6 +31,7 @@ async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
   ort.env.wasm.numThreads = threadCapable ? Math.max(1, Math.min(hwThreads, 4)) : 1
   ort.env.wasm.simd = true
   ort.env.wasm.proxy = false
+  ort.env.wasm.initTimeout = 30_000
   return ort
 }
 
@@ -45,12 +43,15 @@ export class KittenEngine implements TtsEngine {
       throw new Error('KittenEngine requires pre-downloaded model buffers')
     }
 
-    onProgress({ loaded: ESTIMATED_BYTES * 0.95, total: ESTIMATED_BYTES, status: 'downloading' })
-
+    onProgress({ loaded: ESTIMATED_BYTES * 0.4, total: ESTIMATED_BYTES, status: 'downloading' })
     const ort = await loadOrtWeb()
+    onProgress({ loaded: ESTIMATED_BYTES * 0.6, total: ESTIMATED_BYTES, status: 'downloading' })
+
     const session = await ort.InferenceSession.create(preload.modelBuffer, {
       executionProviders: ['wasm'],
     })
+    onProgress({ loaded: ESTIMATED_BYTES * 0.9, total: ESTIMATED_BYTES, status: 'downloading' })
+
     const voices = await loadNpz(preload.voicesBuffer)
     this.tts = new KittenTtsRuntime(session, voices, preload.config, ort)
 

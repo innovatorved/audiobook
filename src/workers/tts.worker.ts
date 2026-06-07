@@ -212,7 +212,7 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
           post({ type: 'error', message: 'Voice model buffers missing — reload from Home page' })
           return
         }
-        const ENGINE_LOAD_TIMEOUT_MS = 60_000
+        const ENGINE_LOAD_TIMEOUT_MS = 30_000
         const loadPromise = (engine as KittenEngine).load(
           (progress) => {
             post({ type: 'progress', ...progress, status: progress.status ?? 'downloading' })
@@ -233,6 +233,10 @@ self.onmessage = (event: MessageEvent<WorkerMessage>) => {
         }
 
         post({ type: 'ready' })
+        post({
+          type: 'voices',
+          voices: engine.listVoices(),
+        })
         return
       }
 

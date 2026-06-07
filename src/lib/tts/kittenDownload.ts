@@ -173,14 +173,18 @@ export async function downloadKittenModel(
     let loaded = 0
     let total = 0
     let allCached = true
+    let allHaveTotals = true
     for (const { loaded: l, total: t, fromCache } of fileProgress.values()) {
       loaded += l
       total += t
       if (!fromCache) allCached = false
+      if (t <= 0) allHaveTotals = false
     }
+    const denominator =
+      allHaveTotals && total > 0 ? total : Math.max(total, estimatedTotal)
     onProgress({
       loaded,
-      total: Math.max(total, estimatedTotal),
+      total: denominator,
       status: allCached && total > 0 && loaded >= total ? 'cached' : 'downloading',
     })
   }
@@ -208,7 +212,9 @@ export async function downloadKittenModel(
     }),
   ])
 
-  onProgress({ loaded: estimatedTotal, total: estimatedTotal, status: 'ready' })
+  const actualTotal =
+    configBuffer.byteLength + modelBuffer.byteLength + voicesBuffer.byteLength
+  onProgress({ loaded: actualTotal, total: actualTotal, status: 'ready' })
   return { modelBuffer, voicesBuffer, config }
 }
 
