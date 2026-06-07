@@ -24,10 +24,10 @@ export function ReaderReturnBanner({
       className="pointer-events-none fixed inset-x-0 z-[55] flex justify-center px-3 sm:px-6"
       style={{ bottom: 'calc(5.25rem + env(safe-area-inset-bottom, 0px))' }}
     >
-      <div className="pointer-events-auto relative w-full max-w-xl">
+      <div className="pointer-events-auto relative w-full max-w-2xl">
         <div
           role="alert"
-          className="absolute right-0 bottom-0 flex max-w-[min(100%,18rem)] items-center gap-2 rounded-full border border-destructive/25 bg-card/95 py-1.5 pr-1.5 pl-3 shadow-md backdrop-blur-md"
+          className="surface-float absolute right-0 bottom-0 flex max-w-[min(100%,20rem)] items-center gap-2 rounded-full py-1.5 pr-1.5 pl-3"
         >
           <AlertCircle className="size-3.5 shrink-0 text-destructive" aria-hidden />
           <p className="min-w-0 truncate text-xs font-medium text-foreground">{label}</p>

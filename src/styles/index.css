@@ -153,4 +153,31 @@
     backdrop-filter: blur(12px);
     box-shadow: 0 1px 0 rgb(28 28 34 / 6%);
   }
+
+  .reader-chrome {
+    background-color: rgb(216 216 223 / 78%);
+    backdrop-filter: blur(14px) saturate(1.05);
+    box-shadow: 0 1px 0 rgb(28 28 34 / 5%);
+  }
+
+  .icon-touch {
+    display: inline-flex;
+    shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    color: var(--quiet-mute);
+    transition-property: color, background-color;
+    transition-duration: var(--duration-normal);
+    transition-timing-function: var(--ease-out);
+  }
+
+  .icon-touch:hover {
+    background-color: rgb(28 28 34 / 6%);
+    color: var(--quiet-text);
+  }
+
+  .icon-touch:active {
+    background-color: rgb(28 28 34 / 10%);
+  }
 }

@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
 import { ArrowLeft, Settings } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { SettingsSheet } from '@/components/layout/SettingsSheet'
+import { cn } from '@/lib/utils'
 
 interface TopBarProps {
   title: string
@@ -11,34 +11,40 @@ interface TopBarProps {
 
 export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
   return (
-    <header className="chrome-bar sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 px-3 pt-[env(safe-area-inset-top)] sm:px-5">
-      <div className="flex min-w-0 items-center gap-2">
-        <Button variant="ghost" size="icon" className="size-9 shrink-0" asChild>
-          <Link to="/" aria-label="Back to library">
-            <ArrowLeft className="size-4" />
-          </Link>
-        </Button>
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-medium text-foreground">{title}</h1>
+    <header className="reader-chrome sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top)]">
+      <div className="flex h-14 items-center gap-2 px-3 sm:gap-3 sm:px-5">
+        <Link
+          to="/"
+          aria-label="Back to library"
+          className="icon-touch size-10"
+        >
+          <ArrowLeft className="size-[1.125rem]" strokeWidth={2} />
+        </Link>
+
+        <div className="min-w-0 flex-1 text-center sm:px-2 sm:text-left">
+          <h1 className="truncate text-[0.9375rem] font-semibold leading-snug tracking-[-0.01em] text-foreground">
+            {title}
+          </h1>
           {pageIndicator && (
-            <p className="truncate text-xs text-muted-foreground">{pageIndicator}</p>
+            <p className="truncate text-[0.6875rem] leading-snug text-muted-foreground">
+              {pageIndicator}
+            </p>
           )}
         </div>
-      </div>
 
-      <SettingsSheet
-        onVoiceChange={onVoiceChange}
-        trigger={
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            aria-label="Playback settings"
-          >
-            <Settings className="size-4" />
-          </Button>
-        }
-      />
+        <SettingsSheet
+          onVoiceChange={onVoiceChange}
+          trigger={
+            <button
+              type="button"
+              className={cn('icon-touch size-10')}
+              aria-label="Playback settings"
+            >
+              <Settings className="size-[1.0625rem]" strokeWidth={2} />
+            </button>
+          }
+        />
+      </div>
     </header>
   )
 }
