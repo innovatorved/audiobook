@@ -44,6 +44,7 @@ export default defineConfig({
     dropBundledWasmAssets(),
   ],
   resolve: {
+    conditions: ['onnxruntime-web-use-extern-wasm', 'import', 'module', 'browser', 'default'],
     alias: [
       ...(isPagesBuild
         ? [
@@ -83,7 +84,7 @@ export default defineConfig({
   },
   assetsInclude: ['**/*.onnx'],
   optimizeDeps: {
-    include: ['fflate', 'onnxruntime-web'],
+    include: ['fflate', 'onnxruntime-web/wasm'],
     exclude: ['@huggingface/transformers', 'kokoro-js', 'kitten-tts-js'],
   },
   worker: { format: 'es' },

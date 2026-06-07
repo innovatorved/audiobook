@@ -4,7 +4,7 @@
 import { TextCleaner, basic_english_tokenize } from 'kitten-tts-js/src/text-cleaner.js'
 import { TextPreprocessor } from 'kitten-tts-js/src/preprocess.js'
 import { phonemize } from 'kitten-tts-js/src/phonemizer.js'
-import type * as OrtNamespace from 'onnxruntime-web'
+import type * as OrtNamespace from 'onnxruntime-web/wasm'
 
 const SAMPLE_RATE = 24000
 const AUDIO_TRIM = 5000
