@@ -147,16 +147,10 @@ function handleWorkerMessage(event: MessageEvent) {
         sampleRate: data.sampleRate,
       })
       notifyPrefetchWaiters(key)
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-start-v3',location:'ttsWorkerManager.ts:prefetchReady',message:'prefetch cached',data:{sentenceIndex,voice,speed,textLen:data.text.length,hadPending},timestamp:Date.now(),hypothesisId:'prefetch'})}).catch(()=>{});
-      // #endregion
       break
     }
     case 'chunk':
       if (data.streamId !== currentStreamId) break
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-start',location:'ttsWorkerManager.ts:chunk',message:'stream chunk received',data:{sentenceIndex:data.sentenceIndex,streamId:data.streamId,samples:data.pcm.length},timestamp:Date.now(),hypothesisId:'stream'})}).catch(()=>{});
-      // #endregion
       void Promise.resolve(onChunkRef?.(data))
       break
     case 'done':
@@ -316,12 +310,8 @@ export function waitForPrefetch(
     prefetchSentence(sentenceIndex, text, voice, speed)
   }
 
-  const waitStart = Date.now()
   return new Promise((resolve) => {
     const finish = (hit: boolean) => {
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-start-v3',location:'ttsWorkerManager.ts:waitForPrefetch',message:'prefetch wait done',data:{sentenceIndex,hit,waitMs:Date.now()-waitStart},timestamp:Date.now(),hypothesisId:'prefetch-wait'})}).catch(()=>{});
-      // #endregion
       resolve(hit)
     }
 
@@ -353,9 +343,6 @@ export function prefetchSentence(
 
   const id = ++prefetchId
   pendingPrefetches.set(id, { sentenceIndex, voice, speed })
-  // #region agent log
-  fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-start-v3',location:'ttsWorkerManager.ts:prefetchSentence',message:'prefetch requested',data:{sentenceIndex,voice,speed,textLen:text.length},timestamp:Date.now(),hypothesisId:'prefetch'})}).catch(()=>{});
-  // #endregion
   worker.postMessage({
     type: 'prefetch',
     text,
@@ -392,9 +379,6 @@ export async function startTtsStream(
     const cached = prefetchCache.get(cacheKey)
     if (cached) {
       prefetchCache.delete(cacheKey)
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-start-v3',location:'ttsWorkerManager.ts:startTtsStream',message:'using prefetched first chunk',data:{sentenceIndex:startIndex,samples:cached.pcm.length},timestamp:Date.now(),hypothesisId:'prefetch-hit'})}).catch(()=>{});
-      // #endregion
       await onChunk({
         text: cached.text,
         pcm: cached.pcm,

@@ -47,9 +47,6 @@ export class HighlightSync {
       })
       cursor += wordDuration
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'highlight-sync-v2',location:'highlightSync.ts:registerSentenceTiming',message:'timings registered',data:{startTime,duration,wordCount:words.length,firstWord:words[0]?.globalIndex,lastWord:words[words.length-1]?.globalIndex,endTime:cursor},timestamp:Date.now(),hypothesisId:'timing-register'})}).catch(()=>{});
-    // #endregion
   }
 
   clear(): void {
@@ -102,9 +99,6 @@ export class HighlightSync {
   private fireWord(wordIndex: number, pageNum: number): void {
     if (wordIndex !== this.lastWordIndex) {
       this.lastWordIndex = wordIndex
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'highlight-sync-v2',location:'highlightSync.ts:fireWord',message:'active word changed',data:{wordIndex,pageNum,playbackTime:audioScheduler.getCurrentTime()},timestamp:Date.now(),hypothesisId:'sync-loop'})}).catch(()=>{});
-      // #endregion
       this.onWordChange?.(wordIndex, pageNum)
     }
   }

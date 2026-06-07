@@ -434,16 +434,10 @@ export function ReaderPage() {
       setPlaying(true)
       await audioScheduler.ensureContext()
       const fromWord = clickedWord?.globalIndex
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'click-restart-v1',location:'ReaderPage.tsx:startFromSentence',message:'restart playback from click or seek',data:{clamped,fromWord,autoPlay,gen,playbackGen:playbackGenRef.current},timestamp:Date.now(),hypothesisId:'click-restart'})}).catch(()=>{});
-      // #endregion
       await beginStream(clamped, fromWord)
       if (gen !== playbackGenRef.current) return
       await audioScheduler.play()
       startHighlightSync()
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'click-restart-v1',location:'ReaderPage.tsx:startFromSentenceDone',message:'playback restarted',data:{clamped,fromWord,gen},timestamp:Date.now(),hypothesisId:'click-restart'})}).catch(()=>{});
-      // #endregion
       void persist()
     },
     [
@@ -463,9 +457,6 @@ export function ReaderPage() {
   )
 
   const handlePlayPause = useCallback(async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-btn-v1',location:'ReaderPage.tsx:handlePlayPause',message:'handlePlayPause invoked',data:{isPlaying,isModelReady,isModelLoading,sentenceCount:sentenceTexts.length,activeWordIndex},timestamp:Date.now(),hypothesisId:'play-btn'})}).catch(()=>{});
-    // #endregion
     if (!isModelReady) {
       if (!isModelLoading) {
         preloadEngine(engine)
@@ -490,9 +481,6 @@ export function ReaderPage() {
       await audioScheduler.pause()
       highlightSync.pause()
       setPlaying(false)
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'playback-v4',location:'ReaderPage.tsx:handlePlayPause',message:'playback paused',data:{resumeIndex:getResumeSentenceIndex(),activeWordIndex},timestamp:Date.now(),hypothesisId:'pause'})}).catch(()=>{});
-      // #endregion
       void persist()
     } else {
       await startFromSentence(getResumeSentenceIndex(), true)

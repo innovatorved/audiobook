@@ -20,15 +20,9 @@ export function DropZone() {
       }
 
       setIsUploading(true)
-      // #region agent log
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'upload-ui-v2',location:'DropZone.tsx:handleFile',message:'pdf upload started',data:{name:file.name,size:file.size},timestamp:Date.now(),hypothesisId:'upload-flow'})}).catch(()=>{});
-      // #endregion
       try {
         const buffer = await file.arrayBuffer()
         const docId = await saveDocument(file.name, file, buffer)
-        // #region agent log
-        fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'upload-ui-v2',location:'DropZone.tsx:handleFileDone',message:'pdf upload saved',data:{docId},timestamp:Date.now(),hypothesisId:'upload-flow'})}).catch(()=>{});
-        // #endregion
         toast.success('PDF uploaded')
         navigate(`/read/${docId}`)
       } catch {

@@ -83,13 +83,6 @@ export async function extractWordsFromPage(
         height: w.height,
       })
     }
-
-    // #region agent log
-    if (pageNum <= 2 && split.length > 0) {
-      const tx = Util.transform(viewport.transform, typedItem.transform)
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'post-fix',location:'extract.ts:item',message:'pdf vs computed word bounds',data:{pageNum,text:typedItem.str.slice(0,40),pdfLeft:tx[4],pdfTop:tx[5]-typedItem.height,pdfItemWidth:typedItem.width,canvasMax:viewport.width,computed:split.map(s=>({t:s.text,l:s.left,top:s.top,w:s.width}))},timestamp:Date.now(),hypothesisId:'A-B'})}).catch(()=>{});
-    }
-    // #endregion
   }
 
   return words
@@ -107,11 +100,5 @@ export async function extractAllDigitalWords(
     allWords.push(...pageWords)
   }
 
-  const clamped = clampWordWidths(allWords)
-  const page1 = clamped.filter((w) => w.pageNum === 1)
-  const maxRight = page1.reduce((m, w) => Math.max(m, w.left + w.width), 0)
-  // #region agent log
-  fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'post-fix-v2',location:'extract.ts:done',message:'extract complete',data:{totalWords:clamped.length,page1Sample:page1.slice(0,4).map(w=>({t:w.text,l:w.left,w:w.width})),page1MaxRight:maxRight,expectedMax:612*PDF_RENDER_SCALE},timestamp:Date.now(),hypothesisId:'A-B'})}).catch(()=>{});
-  // #endregion
-  return clamped
+  return clampWordWidths(allWords)
 }

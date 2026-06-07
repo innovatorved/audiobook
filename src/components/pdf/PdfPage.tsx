@@ -56,19 +56,8 @@ export function PdfPage({
     const onPage = activeSentenceWords.filter((w) =>
       isOnCanvas(w, dimensions.width, dimensions.height),
     )
-    const rects = mergeWordsIntoLineRects(onPage)
-    // #region agent log
-    if (rects.length > 0 && showActiveWord) {
-      fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'highlight-bounds-v1',location:'PdfPage.tsx:sentenceLineRects',message:'sentence line rects computed',data:{pageNum,rectCount:rects.length,canvasW:dimensions.width,rects:rects.map(r=>({l:r.left,t:r.top,w:r.width,h:r.height,start:r.startWordIndex})),wordCount:onPage.length},timestamp:Date.now(),hypothesisId:'line-width'})}).catch(()=>{});
-    }
-    // #endregion
-    return rects
-  }, [activeSentenceWords, dimensions.width, dimensions.height, pageNum, showActiveWord])
-
-  const sentenceLineRectsRef = useRef(sentenceLineRects)
-  const showActiveWordRef = useRef(showActiveWord)
-  sentenceLineRectsRef.current = sentenceLineRects
-  showActiveWordRef.current = showActiveWord
+    return mergeWordsIntoLineRects(onPage)
+  }, [activeSentenceWords, dimensions.width, dimensions.height])
 
   useEffect(() => {
     if (!page || !isVisible || renderingRef.current) return
@@ -95,9 +84,6 @@ export function PdfPage({
 
     let cancelled = false
     renderingRef.current = true
-    // #region agent log
-    fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'post-fix-v2',location:'PdfPage.tsx:renderStart',message:'page render started',data:{pageNum,cached:!!cached},timestamp:Date.now(),hypothesisId:'F-H'})}).catch(()=>{});
-    // #endregion
 
     const render = async () => {
       const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
@@ -122,10 +108,6 @@ export function PdfPage({
         setCachedPageSize(pageNum, viewport.width, viewport.height)
         setHasRendered(true)
         renderingRef.current = false
-        // #region agent log
-        const aw = showActiveWordRef.current
-        fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'post-fix-v2',location:'PdfPage.tsx:renderDone',message:'page render done',data:{pageNum,canvasW:viewport.width,canvasH:viewport.height,activeWord:aw&&isOnCanvas(aw,viewport.width,viewport.height)?{t:aw.text,l:aw.left,top:aw.top,w:aw.width}:null,sentenceRects:sentenceLineRectsRef.current.slice(0,2)},timestamp:Date.now(),hypothesisId:'C-E'})}).catch(()=>{});
-        // #endregion
       }
     }
 
@@ -154,9 +136,6 @@ export function PdfPage({
     const y = event.clientY - rect.top
     const word = findWordAtPoint(pageWords, x, y)
     if (!word) return
-    // #region agent log
-    fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'playback-v5',location:'PdfPage.tsx:handlePageClick',message:'page text clicked',data:{pageNum,word:word.text,sentenceIndex:word.sentenceIndex,x,y},timestamp:Date.now(),hypothesisId:'click-read'})}).catch(()=>{});
-    // #endregion
     onLineClick(word.sentenceIndex, word.globalIndex)
   }
 

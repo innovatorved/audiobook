@@ -34,13 +34,6 @@ export function PlayerBar({
     totalSentences,
   } = usePlayerStore()
 
-  const handlePlayPause = () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7591/ingest/acdd59a1-09b9-4861-90da-6cce280b37ad',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e6bc8'},body:JSON.stringify({sessionId:'8e6bc8',runId:'play-btn-v1',location:'PlayerBar.tsx:handlePlayPause',message:'play button clicked',data:{isPlaying,isModelReady,isModelLoading,totalSentences},timestamp:Date.now(),hypothesisId:'play-btn'})}).catch(()=>{});
-    // #endregion
-    onPlayPause()
-  }
-
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-5 pt-6 sm:px-6">
       <div
@@ -76,7 +69,7 @@ export function PlayerBar({
                 variant="default"
                 size="icon"
                 className="size-11 shrink-0 rounded-full"
-                onClick={handlePlayPause}
+                onClick={onPlayPause}
                 disabled={!isModelReady || isModelLoading}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
