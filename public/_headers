@@ -7,20 +7,5 @@
   Cross-Origin-Embedder-Policy: require-corp
   Cache-Control: public, max-age=31536000, immutable
 
-/onnx/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
-  Cache-Control: public, max-age=31536000, immutable
-
-/piper/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
-  Cache-Control: public, max-age=31536000, immutable
-
-/worker/*
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
-  Cache-Control: public, max-age=31536000, immutable
-
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

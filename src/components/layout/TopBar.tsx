@@ -2,16 +2,14 @@ import { Link } from 'react-router'
 import { ArrowLeft, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SettingsSheet } from '@/components/layout/SettingsSheet'
-import type { TtsEngineType } from '@/lib/types'
 
 interface TopBarProps {
   title: string
   pageIndicator?: string
-  onEngineChange?: (engine: TtsEngineType) => void
   onVoiceChange?: (voice: string) => void
 }
 
-export function TopBar({ title, pageIndicator, onEngineChange, onVoiceChange }: TopBarProps) {
+export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
   return (
     <header className="sticky top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-5">
       <div className="flex min-w-0 items-center gap-2">
@@ -29,7 +27,6 @@ export function TopBar({ title, pageIndicator, onEngineChange, onVoiceChange }: 
       </div>
 
       <SettingsSheet
-        onEngineChange={onEngineChange}
         onVoiceChange={onVoiceChange}
         trigger={
           <Button

@@ -5,9 +5,8 @@
   "type": "module",
   "scripts": {
     "sync:ort": "node scripts/sync-ort-wasm.mjs",
-    "sync:piper": "node scripts/sync-piper-assets.mjs",
-    "dev": "bun run sync:ort && bun run sync:piper && bunx --bun vite",
-    "build": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && node scripts/sync-piper-assets.mjs && node scripts/production-build.mjs",
+    "dev": "bun run sync:ort && bunx --bun vite",
+    "build": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && node scripts/production-build.mjs",
     "build:pages": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && CF_PAGES=1 node scripts/production-build.mjs",
     "lint": "eslint .",
     "preview": "bunx --bun vite preview"
@@ -28,7 +27,6 @@
     "kokoro-js": "^1.2.1",
     "lucide-react": "^1.17.0",
     "pdfjs-dist": "6.0.227",
-    "piper-tts-web": "^1.1.2",
     "radix-ui": "^1.5.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
@@ -53,7 +51,6 @@
     "globals": "^17.6.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12",
-    "vite-plugin-static-copy": "^4.1.1"
+    "vite": "^8.0.12"
   }
 }

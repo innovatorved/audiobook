@@ -7,15 +7,13 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { PlayerSettings } from '@/components/player/PlayerSettings'
-import type { TtsEngineType } from '@/lib/types'
 
 interface SettingsSheetProps {
   trigger: React.ReactNode
-  onEngineChange?: (engine: TtsEngineType) => void
   onVoiceChange?: (voice: string) => void
 }
 
-export function SettingsSheet({ trigger, onEngineChange, onVoiceChange }: SettingsSheetProps) {
+export function SettingsSheet({ trigger, onVoiceChange }: SettingsSheetProps) {
   const isDesktop = useMediaQuery('(min-width: 640px)')
   const side = isDesktop ? 'right' : 'bottom'
 
@@ -32,10 +30,7 @@ export function SettingsSheet({ trigger, onEngineChange, onVoiceChange }: Settin
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
-          <PlayerSettings
-            onEngineChange={onEngineChange}
-            onVoiceChange={onVoiceChange}
-          />
+          <PlayerSettings onVoiceChange={onVoiceChange} />
         </div>
       </SheetContent>
     </Sheet>

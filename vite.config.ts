@@ -3,13 +3,6 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { viteStaticCopy } from 'vite-plugin-static-copy'
-
-const isPagesBuild =
-  process.env.CF_PAGES === '1' ||
-  process.env.CF_PAGES === 'true' ||
-  Boolean(process.env.CF_PAGES_BRANCH) ||
-  Boolean(process.env.CF_PAGES_COMMIT_SHA)
 
 /** ORT wasm is served from /ort/ — drop bundled copies (some exceed CF Pages 25 MiB limit). */
 function dropBundledWasmAssets(): Plugin {
@@ -25,42 +18,11 @@ function dropBundledWasmAssets(): Plugin {
   }
 }
 
-
 export default defineConfig({
-  define: {
-    'import.meta.env.VITE_PIPER_AVAILABLE': JSON.stringify(!isPagesBuild),
-  },
-  plugins: [
-    react(),
-    tailwindcss(),
-    ...(isPagesBuild
-      ? []
-      : [
-          viteStaticCopy({
-            targets: [
-              { src: 'node_modules/piper-tts-web/dist/onnx', dest: '.' },
-              { src: 'node_modules/piper-tts-web/dist/piper', dest: '.' },
-              { src: 'node_modules/piper-tts-web/dist/worker', dest: '.' },
-            ],
-          }),
-        ]),
-    dropBundledWasmAssets(),
-  ],
+  plugins: [react(), tailwindcss(), dropBundledWasmAssets()],
   resolve: {
     conditions: ['onnxruntime-web-use-extern-wasm', 'import', 'module', 'browser', 'default'],
     alias: [
-      ...(isPagesBuild
-        ? [
-            {
-              find: '@/lib/tts/engines/piper',
-              replacement: path.resolve(__dirname, './src/lib/tts/piperEngine.stub.ts'),
-            },
-            {
-              find: '@/lib/tts/piperEngine',
-              replacement: path.resolve(__dirname, './src/lib/tts/piperEngine.stub.ts'),
-            },
-          ]
-        : []),
       { find: '@', replacement: path.resolve(__dirname, './src') },
       { find: 'onnxruntime-node', replacement: path.resolve(__dirname, './src/lib/shims/empty.ts') },
       {

@@ -16,7 +16,7 @@ export interface SentenceInfo {
   pageNum: number
 }
 
-export type TtsEngineType = 'kitten' | 'piper'
+export type TtsEngineType = 'kitten'
 
 export interface VoiceInfo {
   id: string

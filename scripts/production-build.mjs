@@ -14,7 +14,7 @@ const cfPages = isCloudflarePages()
 const env = { ...process.env, CF_PAGES: cfPages ? '1' : process.env.CF_PAGES ?? '' }
 
 if (cfPages) {
-  console.log('[build] Cloudflare Pages detected — using size-limited build (no Piper bundle)')
+  console.log('[build] Cloudflare Pages detected — using size-limited build')
   execSync('npx vite build', { stdio: 'inherit', env })
   execSync('node scripts/prune-dist-for-pages.mjs', { stdio: 'inherit', env })
 } else {

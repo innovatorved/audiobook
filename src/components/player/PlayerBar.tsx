@@ -75,7 +75,7 @@ export function PlayerBar({
                 size="icon"
                 className="size-10 shrink-0 rounded-full"
                 onClick={onPlayPause}
-                disabled={!isModelReady || isModelLoading || !isEngineReady(engine)}
+                disabled={!isModelReady || isModelLoading || !isEngineReady()}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (

@@ -4,8 +4,7 @@ import { FileText } from 'lucide-react'
 import { DropZone } from '@/components/upload/DropZone'
 import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
 import { Progress } from '@/components/ui/progress'
-import { applyPreferencesToStore, loadPreferences } from '@/lib/preferences'
-import { hasMultipleEngineChoices } from '@/lib/tts/engineOptions'
+import { applyPreferencesToStore } from '@/lib/preferences'
 import { switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { getMetadata, getRecentDocuments, getProgress, type DocumentRecord } from '@/lib/db/index'
 
@@ -59,8 +58,7 @@ export function HomePage() {
 
   useEffect(() => {
     applyPreferencesToStore()
-    const prefs = loadPreferences()
-    void switchEngine(prefs.engine)
+    void switchEngine('kitten')
   }, [])
 
   useEffect(() => {
@@ -87,8 +85,6 @@ export function HomePage() {
     })()
   }, [])
 
-  const showEnginePicker = hasMultipleEngineChoices()
-
   return (
     <div className="home-hero flex-1 overflow-y-auto">
       <div className="mx-auto max-w-2xl px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-12">
@@ -98,16 +94,11 @@ export function HomePage() {
             Turn PDFs into audiobooks
           </h1>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground sm:mx-0 sm:text-base">
-            {showEnginePicker
-              ? 'Upload a document, choose a voice engine, and listen with word-by-word highlighting.'
-              : 'Upload a document and listen with word-by-word highlighting.'}
+            Upload a document and listen with word-by-word highlighting.
           </p>
         </div>
 
         <section className="mt-6">
-          {showEnginePicker && (
-            <h2 className="mb-3 text-sm font-medium text-foreground">Voice engine</h2>
-          )}
           <ModelDownloadBanner />
         </section>
 

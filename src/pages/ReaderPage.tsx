@@ -16,10 +16,9 @@ import { findContentStartSentence } from '@/lib/pdf/findContentStart'
 import { buildWordMap } from '@/lib/pipeline/wordMap'
 import { getDocument, getMetadata, saveMetadata } from '@/lib/db/index'
 import {
-  getPreferredVoice,
   loadPreferences,
-  rememberVoiceForEngine,
-  sanitizeVoiceForEngine,
+  rememberVoice,
+  sanitizeVoice,
   savePreferences,
 } from '@/lib/preferences'
 import { audioScheduler } from '@/lib/audio/scheduler'
@@ -31,7 +30,6 @@ import { findClickTargetAtPoint } from '@/lib/pdf/findWordAtPoint'
 import { clearSynthCache, isEngineReady, switchEngine as switchEngineDirect } from '@/lib/tts/ttsWorkerManager'
 import { useOcrPrefetch } from '@/hooks/useOcrPrefetch'
 import { useReadingProgress } from '@/hooks/useReadingProgress'
-import type { TtsEngineType } from '@/lib/types'
 
 function sentenceIndexFromWord(
   words: { globalIndex: number; sentenceIndex: number }[],
@@ -188,20 +186,19 @@ export function ReaderPage() {
         setDocument(docId, doc.name, pdf)
 
         const prefs = loadPreferences()
-        const activeEngine = prefs.engine
         const metadata = await getMetadata(docId)
         if (metadata) {
-          const safeVoice = sanitizeVoiceForEngine(metadata.voice, activeEngine)
-          rememberVoiceForEngine(activeEngine, safeVoice)
+          const safeVoice = sanitizeVoice(metadata.voice)
+          rememberVoice(safeVoice)
           usePlayerStore.setState({
+            engine: 'kitten',
             voice: safeVoice,
             speed: metadata.speed ?? prefs.speed,
-            engine: activeEngine,
           })
         } else {
           usePlayerStore.setState({
-            engine: activeEngine,
-            voice: prefs.voiceByEngine[activeEngine] ?? getPreferredVoice(activeEngine),
+            engine: 'kitten',
+            voice: prefs.voice,
             speed: prefs.speed,
           })
         }
@@ -239,8 +236,8 @@ export function ReaderPage() {
           }
         }
 
-        if (!isEngineReady(activeEngine)) {
-          loadEngine(activeEngine)
+        if (!isEngineReady()) {
+          loadEngine('kitten')
         }
         setIsLoading(false)
       } catch {
@@ -543,12 +540,11 @@ export function ReaderPage() {
         }
       }
 
-      const activeEngine = usePlayerStore.getState().engine
-      const engineReady = isEngineReady(activeEngine)
+      const engineReady = isEngineReady()
       if (!autoPlay || !engineReady) {
         if (autoPlay) {
           pendingClickRef.current = { index: clamped, wordIndex: clickedWord?.globalIndex }
-          void switchEngineDirect(activeEngine)
+          void switchEngineDirect('kitten')
         } else {
           await audioScheduler.pause()
           setPlaying(false)
@@ -595,15 +591,15 @@ export function ReaderPage() {
 
   useEffect(() => {
     const pending = pendingClickRef.current
-    if (!pending || !isEngineReady(engine)) return
+    if (!pending || !isEngineReady()) return
     pendingClickRef.current = null
     void startFromSentence(pending.index, true, pending.wordIndex)
   }, [isModelReady, engine, startFromSentence])
 
   const handlePlayPause = useCallback(async () => {
-    if (!isModelReady || !isEngineReady(engine)) {
+    if (!isModelReady || !isEngineReady()) {
       if (!isModelLoading) {
-        void switchEngine(engine)
+        void switchEngine('kitten')
       }
       toast.info('Loading voice model…', {
         description: 'Visit Home first to preload, or wait for the model to finish downloading.',
@@ -736,7 +732,7 @@ export function ReaderPage() {
     (newVoice: string) => {
       clearSynthCache()
       setVoice(newVoice)
-      rememberVoiceForEngine(usePlayerStore.getState().engine, newVoice)
+      rememberVoice(newVoice)
 
       if (docId) {
         void saveMetadata({
@@ -810,27 +806,6 @@ export function ReaderPage() {
     [setSpeed, docId, isScanned, totalPages],
   )
 
-  const handleEngineChange = useCallback(
-    (newEngine: TtsEngineType) => {
-      const prev = usePlayerStore.getState()
-      rememberVoiceForEngine(prev.engine, prev.voice)
-      streamingRef.current = false
-      stopStream()
-      void switchEngine(newEngine)
-      if (docId) {
-        void saveMetadata({
-          docId,
-          isScanned,
-          totalPages,
-          voice: getPreferredVoice(newEngine),
-          speed: prev.speed,
-          engine: newEngine,
-        })
-      }
-    },
-    [stopStream, docId, isScanned, totalPages],
-  )
-
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
@@ -888,7 +863,6 @@ export function ReaderPage() {
       <TopBar
         title={docName}
         pageIndicator={`Page ${activePageNum} of ${totalPages}`}
-        onEngineChange={handleEngineChange}
         onVoiceChange={handleVoiceChange}
       />
 

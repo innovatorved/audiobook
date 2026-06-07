@@ -1,34 +1,29 @@
 import {
   getPreferredVoice,
-  rememberVoiceForEngine,
+  rememberVoice,
   resolveVoiceForEngine,
 } from '@/lib/preferences'
 import { tagRecommendedVoices } from '@/lib/tts/recommended'
 import { usePlayerStore } from '@/stores/playerStore'
-import type { TtsEngineType, VoiceInfo } from '@/lib/types'
+import type { VoiceInfo } from '@/lib/types'
 
-export function syncVoiceWithEngineVoices(
-  voices: VoiceInfo[],
-  engine: TtsEngineType | null,
-): string {
-  const tagged = engine ? tagRecommendedVoices(engine, voices) : voices
+export function syncVoiceWithEngineVoices(voices: VoiceInfo[]): string {
+  const tagged = tagRecommendedVoices(voices)
 
-  if (!engine || tagged.length === 0) {
+  if (tagged.length === 0) {
     usePlayerStore.getState().setVoices(tagged)
     return usePlayerStore.getState().voice
   }
 
   const store = usePlayerStore.getState()
   const previousVoice = store.voice
-  const resolved = resolveVoiceForEngine(tagged, engine, previousVoice)
+  const resolved = resolveVoiceForEngine(tagged, previousVoice)
 
   store.setVoices(tagged)
   if (resolved !== previousVoice) {
     store.setVoice(resolved)
-    rememberVoiceForEngine(engine, resolved)
-  } else {
-    rememberVoiceForEngine(engine, resolved)
   }
+  rememberVoice(resolved)
 
   return resolved
 }
