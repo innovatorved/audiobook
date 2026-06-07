@@ -27,7 +27,7 @@ import { useReaderStore } from '@/stores/readerStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useTtsWorker } from '@/hooks/useTtsWorker'
 import { findClickTargetAtPoint } from '@/lib/pdf/findWordAtPoint'
-import { clearSynthCache, isEngineReady, switchEngine as switchEngineDirect } from '@/lib/tts/ttsWorkerManager'
+import { clearSynthCache, isEngineReady } from '@/lib/tts/ttsWorkerManager'
 import { useOcrPrefetch } from '@/hooks/useOcrPrefetch'
 import { useReadingProgress } from '@/hooks/useReadingProgress'
 
@@ -105,7 +105,7 @@ export function ReaderPage() {
     reset: resetPlayer,
   } = usePlayerStore()
 
-  const { loadEngine, switchEngine, startStream, stopStream, prefetchSynth } = useTtsWorker()
+  const { ensureEngine, startStream, stopStream, prefetchSynth } = useTtsWorker()
   const { prefetchAround, ocrPage } = useOcrPrefetch()
   const { persist, restoreProgress } = useReadingProgress()
 
@@ -237,7 +237,7 @@ export function ReaderPage() {
         }
 
         if (!isEngineReady()) {
-          loadEngine('kitten')
+          ensureEngine()
         }
         setIsLoading(false)
       } catch {
@@ -544,7 +544,7 @@ export function ReaderPage() {
       if (!autoPlay || !engineReady) {
         if (autoPlay) {
           pendingClickRef.current = { index: clamped, wordIndex: clickedWord?.globalIndex }
-          void switchEngineDirect('kitten')
+          ensureEngine()
         } else {
           await audioScheduler.pause()
           setPlaying(false)
@@ -599,7 +599,7 @@ export function ReaderPage() {
   const handlePlayPause = useCallback(async () => {
     if (!isModelReady || !isEngineReady()) {
       if (!isModelLoading) {
-        void switchEngine('kitten')
+        ensureEngine()
       }
       toast.info('Loading voice model…', {
         description: 'Visit Home first to preload, or wait for the model to finish downloading.',

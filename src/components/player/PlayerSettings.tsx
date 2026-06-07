@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { Slider } from '@/components/ui/slider'
-import { SpeedSlider } from '@/components/player/SpeedSlider'
 import { VoicePicker } from '@/components/player/VoicePicker'
 import { rememberVoice, savePreferences } from '@/lib/preferences'
 import { usePlayerStore } from '@/stores/playerStore'
@@ -65,12 +64,16 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
       </SettingRow>
 
       <SettingRow label="Speed" value={`${speed.toFixed(1)}×`}>
-        <SpeedSlider
-          value={speed}
-          onChange={(v) => {
+        <Slider
+          min={0.5}
+          max={4.5}
+          step={0.1}
+          value={[speed]}
+          onValueChange={([v]) => {
             setSpeed(v)
             savePreferences({ speed: v })
           }}
+          aria-label="Playback speed"
           className="w-full"
         />
       </SettingRow>

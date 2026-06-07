@@ -332,12 +332,6 @@ async function switchEngineWork(): Promise<void> {
   }
 }
 
-/** @deprecated Use switchEngine */
-export const preloadEngine = switchEngine
-
-/** @deprecated Use switchEngine */
-export const reloadEngine = switchEngine
-
 export function isEngineReady(): boolean {
   const store = getStore()
   if (loaded) return true

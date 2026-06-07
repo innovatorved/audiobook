@@ -12,11 +12,6 @@
     "preview": "bunx --bun vite preview"
   },
   "dependencies": {
-    "@radix-ui/react-progress": "^1.1.9",
-    "@radix-ui/react-select": "^2.3.0",
-    "@radix-ui/react-slider": "^1.4.0",
-    "@radix-ui/react-slot": "^1.2.5",
-    "@radix-ui/react-tooltip": "^1.2.9",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/react-virtual": "^3.14.2",
     "class-variance-authority": "^0.7.1",
@@ -24,7 +19,6 @@
     "dexie": "4.4.3",
     "fflate": "^0.8.3",
     "kitten-tts-js": "^0.1.2",
-    "kokoro-js": "^1.2.1",
     "lucide-react": "^1.17.0",
     "pdfjs-dist": "6.0.227",
     "radix-ui": "^1.5.0",

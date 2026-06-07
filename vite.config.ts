@@ -47,10 +47,9 @@ export default defineConfig({
       },
     ],
   },
-  assetsInclude: ['**/*.onnx'],
   optimizeDeps: {
     include: ['fflate', 'onnxruntime-web/wasm'],
-    exclude: ['@huggingface/transformers', 'kokoro-js', 'kitten-tts-js'],
+    exclude: ['kitten-tts-js'],
   },
   worker: { format: 'es' },
   build: {
