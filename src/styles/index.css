@@ -1,0 +1,97 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  /* Cool neutral palette — content first */
+  --color-background: oklch(0.99 0.002 264);
+  --color-sidebar: oklch(0.99 0.002 264);
+  --color-card: oklch(1 0 0);
+  --color-card-foreground: oklch(0.18 0.01 264);
+  --color-muted: oklch(0.965 0.004 264);
+  --color-accent: oklch(0.955 0.012 264);
+  --color-border: oklch(0.88 0.008 264);
+
+  --color-foreground: oklch(0.18 0.01 264);
+  --color-muted-foreground: oklch(0.48 0.012 264);
+
+  --color-primary: oklch(0.52 0.19 275);
+  --color-primary-foreground: oklch(0.99 0.002 264);
+
+  --color-reader: oklch(0.94 0.006 264);
+  --color-highlight: oklch(0.88 0.06 275 / 35%);
+  --color-speaking: oklch(0.82 0.08 275 / 30%);
+  --color-speaking-active: oklch(0.58 0.18 275 / 55%);
+
+  --color-success: oklch(0.52 0.14 155);
+  --color-success-muted: oklch(0.96 0.02 155);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --color-ring: oklch(0.52 0.19 275 / 35%);
+  --color-input: oklch(0.92 0.006 264);
+  --color-destructive: oklch(0.55 0.2 25);
+  --color-destructive-foreground: oklch(0.99 0.002 264);
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.18 0.01 264);
+  --color-secondary: oklch(0.965 0.004 264);
+  --color-secondary-foreground: oklch(0.22 0.01 264);
+  --color-accent-foreground: oklch(0.22 0.01 264);
+
+  --shadow-sm: 0 1px 2px oklch(0.18 0.01 264 / 4%);
+  --shadow-md: 0 4px 12px oklch(0.18 0.01 264 / 6%), 0 1px 3px oklch(0.18 0.01 264 / 4%);
+  --shadow-lg: 0 8px 24px oklch(0.18 0.01 264 / 8%), 0 2px 6px oklch(0.18 0.01 264 / 4%);
+  --shadow-page: 0 1px 3px oklch(0.18 0.01 264 / 6%), 0 8px 24px oklch(0.18 0.01 264 / 8%);
+  --shadow-player: 0 4px 24px oklch(0.18 0.01 264 / 10%), 0 1px 4px oklch(0.18 0.01 264 / 6%);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: -0.011em;
+  }
+
+  h1, h2, h3 {
+    letter-spacing: -0.022em;
+  }
+}
+
+@layer utilities {
+  .surface-elevated {
+    background: var(--color-card);
+    box-shadow: var(--shadow-md);
+  }
+
+  .surface-subtle {
+    background: var(--color-muted);
+  }
+
+  .transition-smooth {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+    transition-duration: var(--duration-normal);
+    transition-timing-function: var(--ease-out);
+  }
+
+  .reader-canvas {
+    background-color: var(--color-reader);
+  }
+}
