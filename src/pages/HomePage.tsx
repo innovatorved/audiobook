@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { FileText } from 'lucide-react'
+import { AppLogo } from '@/components/brand/AppLogo'
 import { DropZone } from '@/components/upload/DropZone'
 import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
 import { Progress } from '@/components/ui/progress'
@@ -93,6 +94,9 @@ export function HomePage() {
     <div className="home-hero flex-1 overflow-y-auto">
       <div className="mx-auto max-w-2xl px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-12">
         <div className="text-center sm:text-left">
+          <div className="mx-auto mb-4 w-fit sm:mx-0">
+            <AppLogo size="lg" />
+          </div>
           <p className="text-xs font-medium uppercase tracking-wider text-primary">Private · Offline-ready</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             Turn PDFs into audiobooks
