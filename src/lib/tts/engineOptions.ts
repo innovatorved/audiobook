@@ -25,3 +25,7 @@ const ALL_ENGINE_OPTIONS: Array<{
 export const ENGINE_OPTIONS = ALL_ENGINE_OPTIONS.filter(
   (opt) => opt.id !== 'piper' || isPiperAvailable(),
 )
+
+export function hasMultipleEngineChoices(): boolean {
+  return ENGINE_OPTIONS.length > 1
+}

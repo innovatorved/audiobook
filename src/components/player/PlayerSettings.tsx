@@ -10,7 +10,7 @@ import { Slider } from '@/components/ui/slider'
 import { RecommendedBadge } from '@/components/player/RecommendedBadge'
 import { SpeedSlider } from '@/components/player/SpeedSlider'
 import { VoicePicker } from '@/components/player/VoicePicker'
-import { ENGINE_OPTIONS } from '@/lib/tts/engineOptions'
+import { ENGINE_OPTIONS, hasMultipleEngineChoices } from '@/lib/tts/engineOptions'
 import { rememberVoiceForEngine, savePreferences } from '@/lib/preferences'
 import { usePlayerStore } from '@/stores/playerStore'
 import type { TtsEngineType } from '@/lib/types'
@@ -63,38 +63,41 @@ export function PlayerSettings({ onEngineChange, onVoiceChange }: PlayerSettings
   } = usePlayerStore()
 
   const engineMeta = ENGINE_OPTIONS.find((o) => o.id === engine)
+  const showEnginePicker = hasMultipleEngineChoices()
 
   return (
     <div className="space-y-8">
-      <SettingRow label="Voice engine" hint={engineMeta?.description}>
-        <Select
-          value={engine}
-          disabled={isModelLoading}
-          onValueChange={(v) => {
-            onEngineChange?.(v as TtsEngineType)
-          }}
-        >
-          <SelectTrigger
-            className="h-12 w-full justify-between rounded-xl border-border bg-card px-4 text-base font-medium"
-            aria-label="Voice engine"
+      {showEnginePicker && (
+        <SettingRow label="Voice engine" hint={engineMeta?.description}>
+          <Select
+            value={engine}
+            disabled={isModelLoading}
+            onValueChange={(v) => {
+              onEngineChange?.(v as TtsEngineType)
+            }}
           >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ENGINE_OPTIONS.map((opt) => (
-              <SelectItem key={opt.id} value={opt.id} className="py-2.5">
-                <div className="flex flex-col gap-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground">{opt.label}</span>
-                    {opt.recommended && <RecommendedBadge />}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{opt.description}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </SettingRow>
+            <SelectTrigger
+              className="h-12 w-full justify-between rounded-xl border-border bg-card px-4 text-base font-medium"
+              aria-label="Voice engine"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ENGINE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.id} value={opt.id} className="py-2.5">
+                  <div className="flex flex-col gap-1">
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-foreground">{opt.label}</span>
+                      {opt.recommended && <RecommendedBadge />}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{opt.description}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingRow>
+      )}
 
       <SettingRow label="Voice">
         <VoicePicker

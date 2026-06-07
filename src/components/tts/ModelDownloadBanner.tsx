@@ -2,7 +2,7 @@ import { AlertCircle, CheckCircle2, Cpu, Loader2, RotateCcw, Zap } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { RecommendedBadge } from '@/components/player/RecommendedBadge'
-import { ENGINE_OPTIONS } from '@/lib/tts/engineOptions'
+import { ENGINE_OPTIONS, hasMultipleEngineChoices } from '@/lib/tts/engineOptions'
 import { formatBytes } from '@/lib/tts/kittenDownload'
 import { getLoadingEngine, switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
@@ -30,6 +30,7 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   } = usePlayerStore()
 
   const loadingEngine = getLoadingEngine()
+  const showEnginePicker = hasMultipleEngineChoices()
 
   const handleSelectEngine = (next: TtsEngineType) => {
     void switchEngine(next)
@@ -55,6 +56,33 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   const pct = Math.min(100, Math.max(0, modelProgress))
   const hasByteCounts = modelTotalBytes > 0 && modelLoadedBytes > 0
   const showProgress = isModelLoading && !isModelReady
+
+  if (!showEnginePicker) {
+    return (
+      <div className={cn('space-y-2', className)}>
+        {showProgress && (
+          <div className="rounded-xl border border-border bg-card px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
+              <p className="text-sm text-muted-foreground">
+                {pct > 0 && pct < 95 && hasByteCounts
+                  ? `Preparing voice… ${pct}% (${formatBytes(modelLoadedBytes)} / ${formatBytes(modelTotalBytes)})`
+                  : `Preparing voice… ${pct}%`}
+              </p>
+            </div>
+            <Progress value={Math.max(pct, 4)} className="mt-2.5 h-1" aria-hidden />
+          </div>
+        )}
+
+        {isModelReady && !isModelLoading && (
+          <p className="text-center text-xs text-muted-foreground">
+            <CheckCircle2 className="mr-1 inline size-3.5 text-success" />
+            Voice ready — upload a PDF to start listening
+          </p>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={cn('space-y-3', className)}>
