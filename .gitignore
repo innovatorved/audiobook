@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 public/ort
+public/kitten-model
 *.local
 
 # Editor directories and files

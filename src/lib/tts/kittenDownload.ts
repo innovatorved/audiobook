@@ -1,29 +1,12 @@
 /**
- * Browser-side Kitten model download with byte-level progress.
- * Mirrors kitten-tts-js model-loader caching without modifying node_modules.
+ * Same-origin loader for the Kitten TTS model bundled into /kitten-model/.
+ * The build step (scripts/fetch-kitten-model.mjs) downloads the model from
+ * Hugging Face and writes it (plus a manifest) into public/kitten-model/.
+ * Runtime never hits a third-party origin, so there are no CORS, CORP, or
+ * CDN-redirect issues.
  */
 
-const HF_BASE = 'https://huggingface.co'
-const CACHE_NAME = 'kitten-tts'
-
-/**
- * In production we proxy HF through a same-origin Pages Function to avoid
- * CORS/CORP issues with HF's CDN redirect (cas-bridge.xethub.hf.co does not
- * echo our Origin). In dev (vite) we hit HF directly — the dev server is
- * permissive enough.
- */
-function isProduction(): boolean {
-  if (typeof location === 'undefined') return false
-  const host = location.hostname
-  return host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local')
-}
-
-/** Approximate download sizes when Content-Length is missing (micro default). */
-const ESTIMATED_BYTES: Record<string, number> = {
-  'KittenML/kitten-tts-nano-0.8': 25 * 1024 * 1024,
-  'KittenML/kitten-tts-micro-0.8': 43 * 1024 * 1024,
-  'KittenML/kitten-tts-mini-0.8': 80 * 1024 * 1024,
-}
+const MODEL_BASE = '/kitten-model'
 
 export type KittenDownloadProgress = {
   loaded: number
@@ -31,205 +14,103 @@ export type KittenDownloadProgress = {
   status: 'downloading' | 'cached' | 'ready'
 }
 
-async function cacheGet(key: string): Promise<ArrayBuffer | null> {
-  if (typeof caches === 'undefined') return null
-  const cache = await caches.open(CACHE_NAME)
-  const resp = await cache.match('/' + key)
-  if (!resp) return null
-  return resp.arrayBuffer()
+type Manifest = {
+  repo: string
+  files: Record<string, { size: number; parts: number }>
 }
 
-async function cacheSet(key: string, buffer: ArrayBuffer): Promise<void> {
-  if (typeof caches === 'undefined') return
-  const cache = await caches.open(CACHE_NAME)
-  await cache.put('/' + key, new Response(buffer))
-}
-
-function hfUrl(repoId: string, filename: string): string {
-  if (isProduction()) {
-    return `/hf/${repoId}/resolve/main/${filename}`
-  }
-  return `${HF_BASE}/${repoId}/resolve/main/${filename}`
-}
-
-const TOTAL_TIMEOUT_MS = 60_000
-const NO_PROGRESS_TIMEOUT_MS = 20_000
-const RETRY_ATTEMPTS = 3
-const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504])
-
-class HttpStatusError extends Error {
-  status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
-}
-
-async function fetchWithProgress(
+async function fetchBuffer(
   url: string,
-  onBytes: (loaded: number, total: number) => void,
+  onBytes: (delta: number) => void,
 ): Promise<ArrayBuffer> {
-  const controller = new AbortController()
-  const totalTimer = setTimeout(
-    () => controller.abort(new Error(`Download timeout after ${TOTAL_TIMEOUT_MS}ms`)),
-    TOTAL_TIMEOUT_MS,
-  )
-  let progressTimer: ReturnType<typeof setTimeout> | null = null
-  const resetProgressTimer = () => {
-    if (progressTimer) clearTimeout(progressTimer)
-    progressTimer = setTimeout(
-      () => controller.abort(new Error(`No download progress for ${NO_PROGRESS_TIMEOUT_MS}ms`)),
-      NO_PROGRESS_TIMEOUT_MS,
-    )
+  const resp = await fetch(url)
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} loading ${url}`)
+  if (!resp.body) {
+    const buf = await resp.arrayBuffer()
+    onBytes(buf.byteLength)
+    return buf
   }
-
-  try {
-    resetProgressTimer()
-    const resp = await fetch(url, { signal: controller.signal })
-    if (!resp.ok) {
-      throw new HttpStatusError(
-        resp.status,
-        `HTTP ${resp.status} downloading ${url.split('/').pop() ?? 'model file'}`,
-      )
-    }
-
-    const contentLength = Number(resp.headers.get('content-length') ?? 0)
-    const body = resp.body
-    if (!body) {
-      const buffer = await resp.arrayBuffer()
-      onBytes(buffer.byteLength, contentLength || buffer.byteLength)
-      return buffer
-    }
-
-    const reader = body.getReader()
-    const chunks: Uint8Array[] = []
-    let loaded = 0
-    onBytes(0, contentLength || 0)
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      resetProgressTimer()
-      chunks.push(value)
-      loaded += value.byteLength
-      onBytes(loaded, contentLength || Math.max(loaded, contentLength))
-    }
-
-    const buffer = new Uint8Array(loaded)
-    let offset = 0
-    for (const chunk of chunks) {
-      buffer.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return buffer.buffer
-  } finally {
-    clearTimeout(totalTimer)
-    if (progressTimer) clearTimeout(progressTimer)
+  const reader = resp.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    total += value.byteLength
+    onBytes(value.byteLength)
   }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out.buffer
 }
 
-function isRetryableError(err: unknown): boolean {
-  if (err instanceof HttpStatusError) return RETRYABLE_STATUS.has(err.status)
-  // TypeError → network failure; AbortError → timeout (both worth retrying).
-  if (err instanceof TypeError) return true
-  if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('timeout'))) {
-    return true
-  }
-  return false
-}
-
-async function fetchWithRetry(
-  url: string,
-  onBytes: (loaded: number, total: number) => void,
-): Promise<ArrayBuffer> {
-  let lastErr: unknown
-  let delay = 1000
-  for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
-    try {
-      return await fetchWithProgress(url, onBytes)
-    } catch (err) {
-      lastErr = err
-      if (attempt === RETRY_ATTEMPTS || !isRetryableError(err)) break
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      delay *= 3
-    }
-  }
-  throw lastErr
-}
-
-async function fetchCached(
-  repoId: string,
+async function fetchChunked(
   filename: string,
-  onFileProgress: (loaded: number, total: number, fromCache: boolean) => void,
+  parts: number,
+  size: number,
+  onBytes: (delta: number) => void,
 ): Promise<ArrayBuffer> {
-  const cacheKey = `${repoId.replace('/', '__')}__${filename.replace(/\//g, '_')}`
-  const cached = await cacheGet(cacheKey)
-  if (cached) {
-    onFileProgress(cached.byteLength, cached.byteLength, true)
-    return cached
+  if (parts === 1) {
+    return fetchBuffer(`${MODEL_BASE}/${filename}`, onBytes)
   }
-
-  const url = hfUrl(repoId, filename)
-  const buffer = await fetchWithRetry(url, (loaded, total) => {
-    onFileProgress(loaded, total, false)
-  })
-  await cacheSet(cacheKey, buffer)
-  return buffer
+  const buffers: ArrayBuffer[] = []
+  for (let i = 0; i < parts; i++) {
+    buffers.push(await fetchBuffer(`${MODEL_BASE}/${filename}.part${i}`, onBytes))
+  }
+  const combined = new Uint8Array(size)
+  let offset = 0
+  for (const buf of buffers) {
+    combined.set(new Uint8Array(buf), offset)
+    offset += buf.byteLength
+  }
+  return combined.buffer
 }
 
 export async function downloadKittenModel(
-  repoId: string,
+  _repoId: string,
   onProgress: (progress: KittenDownloadProgress) => void,
 ): Promise<{ modelBuffer: ArrayBuffer; voicesBuffer: ArrayBuffer; config: Record<string, unknown> }> {
-  const estimatedTotal = ESTIMATED_BYTES[repoId] ?? 43 * 1024 * 1024
-  const fileProgress = new Map<string, { loaded: number; total: number; fromCache: boolean }>()
+  const manifestResp = await fetch(`${MODEL_BASE}/manifest.json`)
+  if (!manifestResp.ok) {
+    throw new Error(
+      'Voice model bundle missing — rebuild required (npm run build downloads it).',
+    )
+  }
+  const manifest = (await manifestResp.json()) as Manifest
 
-  const report = () => {
-    let loaded = 0
-    let total = 0
-    let allCached = true
-    let allHaveTotals = true
-    for (const { loaded: l, total: t, fromCache } of fileProgress.values()) {
-      loaded += l
-      total += t
-      if (!fromCache) allCached = false
-      if (t <= 0) allHaveTotals = false
-    }
-    const denominator =
-      allHaveTotals && total > 0 ? total : Math.max(total, estimatedTotal)
-    onProgress({
-      loaded,
-      total: denominator,
-      status: allCached && total > 0 && loaded >= total ? 'cached' : 'downloading',
-    })
+  const totalSize = Object.values(manifest.files).reduce((acc, f) => acc + f.size, 0)
+  let loaded = 0
+  const tick = (delta: number) => {
+    loaded += delta
+    onProgress({ loaded, total: totalSize, status: 'downloading' })
   }
 
-  onProgress({ loaded: 0, total: estimatedTotal, status: 'downloading' })
+  onProgress({ loaded: 0, total: totalSize, status: 'downloading' })
 
-  const configBuffer = await fetchCached(repoId, 'config.json', (loaded, total, fromCache) => {
-    fileProgress.set('config.json', { loaded, total, fromCache })
-    report()
-  })
+  const configMeta = manifest.files['config.json']
+  if (!configMeta) throw new Error('Manifest missing config.json')
+  const configBuffer = await fetchChunked('config.json', configMeta.parts, configMeta.size, tick)
   const config = JSON.parse(new TextDecoder().decode(configBuffer)) as Record<string, unknown>
 
   const modelFile = config.model_file as string | undefined
   const voicesFile = (config.voices as string | undefined) ?? 'voices.npz'
-  if (!modelFile) throw new Error(`config.json missing 'model_file' for ${repoId}`)
+  if (!modelFile) throw new Error("config.json missing 'model_file'")
+  const modelMeta = manifest.files[modelFile]
+  const voicesMeta = manifest.files[voicesFile]
+  if (!modelMeta) throw new Error(`Manifest missing ${modelFile}`)
+  if (!voicesMeta) throw new Error(`Manifest missing ${voicesFile}`)
 
   const [modelBuffer, voicesBuffer] = await Promise.all([
-    fetchCached(repoId, modelFile, (loaded, total, fromCache) => {
-      fileProgress.set(modelFile, { loaded, total, fromCache })
-      report()
-    }),
-    fetchCached(repoId, voicesFile, (loaded, total, fromCache) => {
-      fileProgress.set(voicesFile, { loaded, total, fromCache })
-      report()
-    }),
+    fetchChunked(modelFile, modelMeta.parts, modelMeta.size, tick),
+    fetchChunked(voicesFile, voicesMeta.parts, voicesMeta.size, tick),
   ])
 
-  const actualTotal =
-    configBuffer.byteLength + modelBuffer.byteLength + voicesBuffer.byteLength
-  onProgress({ loaded: actualTotal, total: actualTotal, status: 'ready' })
+  onProgress({ loaded: totalSize, total: totalSize, status: 'ready' })
   return { modelBuffer, voicesBuffer, config }
 }
 

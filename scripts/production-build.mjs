@@ -13,6 +13,8 @@ export function isCloudflarePages() {
 const cfPages = isCloudflarePages()
 const env = { ...process.env, CF_PAGES: cfPages ? '1' : process.env.CF_PAGES ?? '' }
 
+execSync('node scripts/fetch-kitten-model.mjs', { stdio: 'inherit', env })
+
 if (cfPages) {
   console.log('[build] Cloudflare Pages detected — using size-limited build')
   execSync('npx vite build', { stdio: 'inherit', env })
