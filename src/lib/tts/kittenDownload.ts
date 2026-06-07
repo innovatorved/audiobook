@@ -6,6 +6,18 @@
 const HF_BASE = 'https://huggingface.co'
 const CACHE_NAME = 'kitten-tts'
 
+/**
+ * In production we proxy HF through a same-origin Pages Function to avoid
+ * CORS/CORP issues with HF's CDN redirect (cas-bridge.xethub.hf.co does not
+ * echo our Origin). In dev (vite) we hit HF directly — the dev server is
+ * permissive enough.
+ */
+function isProduction(): boolean {
+  if (typeof location === 'undefined') return false
+  const host = location.hostname
+  return host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.local')
+}
+
 /** Approximate download sizes when Content-Length is missing (micro default). */
 const ESTIMATED_BYTES: Record<string, number> = {
   'KittenML/kitten-tts-nano-0.8': 25 * 1024 * 1024,
@@ -22,6 +34,9 @@ export type KittenDownloadProgress = {
 async function cacheGet(key: string): Promise<ArrayBuffer | null> {
   if (typeof caches === 'undefined') return null
   const cache = await caches.open(CACHE_NAME)
+  if (isProduction()) {
+    return `/hf/${repoId}/resolve/main/${filename}`
+  }
   const resp = await cache.match('/' + key)
   if (!resp) return null
   return resp.arrayBuffer()
