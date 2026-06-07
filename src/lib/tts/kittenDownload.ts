@@ -34,9 +34,6 @@ export type KittenDownloadProgress = {
 async function cacheGet(key: string): Promise<ArrayBuffer | null> {
   if (typeof caches === 'undefined') return null
   const cache = await caches.open(CACHE_NAME)
-  if (isProduction()) {
-    return `/hf/${repoId}/resolve/main/${filename}`
-  }
   const resp = await cache.match('/' + key)
   if (!resp) return null
   return resp.arrayBuffer()
@@ -49,6 +46,9 @@ async function cacheSet(key: string, buffer: ArrayBuffer): Promise<void> {
 }
 
 function hfUrl(repoId: string, filename: string): string {
+  if (isProduction()) {
+    return `/hf/${repoId}/resolve/main/${filename}`
+  }
   return `${HF_BASE}/${repoId}/resolve/main/${filename}`
 }
 
