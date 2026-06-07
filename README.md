@@ -1,17 +1,18 @@
 # Audiobook
 
-Turn PDFs into spoken audio in your browser. Words highlight as they are read. No server, no API keys.
+Turn PDFs into audiobooks in your browser. Upload a PDF, listen to it, and follow along with highlighting.
 
 **Live:** https://audiobook.vedgupta.in/
 
 ## What it does
 
 - Upload PDFs and keep them in your library
-- Listen with AI voices (Kitten or Piper)
-- See the current word and sentence highlighted on the page
-- Tap or click any paragraph to start reading from there
-- Pick up where you left off — progress is saved automatically
-- Read scanned PDFs with built-in OCR
+- Listen with the offline neural voice or your browser voice
+- Follow word and sentence highlighting while listening
+- Click text to start reading from that point
+- Resume where you left off
+- Read scanned PDFs with OCR
+- Works locally in the browser without API keys
 
 ## Run locally
 
@@ -36,3 +37,7 @@ bun run preview
 | Space | Play / pause |
 | ← / → | Previous / next sentence |
 | ↑ / ↓ | Speed up / down |
+
+## Contact
+
+vedgupta@protonmail.com
