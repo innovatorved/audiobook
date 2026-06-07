@@ -1,7 +1,8 @@
 import type { TtsEngineType } from '@/lib/types'
+import { isPiperAvailable } from '@/lib/tts/deployment'
 import { isRecommendedEngine } from '@/lib/tts/recommended'
 
-export const ENGINE_OPTIONS: Array<{
+const ALL_ENGINE_OPTIONS: Array<{
   id: TtsEngineType
   label: string
   description: string
@@ -20,3 +21,7 @@ export const ENGINE_OPTIONS: Array<{
     recommended: isRecommendedEngine('piper'),
   },
 ]
+
+export const ENGINE_OPTIONS = ALL_ENGINE_OPTIONS.filter(
+  (opt) => opt.id !== 'piper' || isPiperAvailable(),
+)

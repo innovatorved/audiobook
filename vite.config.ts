@@ -27,6 +27,9 @@ function dropBundledWasmAssets(): Plugin {
 
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_PIPER_AVAILABLE': JSON.stringify(!isPagesBuild),
+  },
   plugins: [
     react(),
     tailwindcss(),

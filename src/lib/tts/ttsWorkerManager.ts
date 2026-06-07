@@ -7,6 +7,7 @@ import {
 } from '@/lib/tts/piperDownload'
 import { PIPER_DEFAULT_VOICE } from '@/lib/tts/piperVoices'
 import { getPreferredVoice, resolveVoiceForEngine, savePreferences } from '@/lib/preferences'
+import { resolveEngineType } from '@/lib/tts/deployment'
 import { syncVoiceWithEngineVoices } from '@/lib/tts/voiceSync'
 import { usePlayerStore, type ModelLoadStatus } from '@/stores/playerStore'
 import type { TtsEngineType } from '@/lib/types'
@@ -345,6 +346,11 @@ export function getLoadingEngine(): TtsEngineType | null {
 const engineLoadPromises = new Map<TtsEngineType, Promise<void>>()
 
 export async function switchEngine(engineType: TtsEngineType): Promise<void> {
+  const resolved = resolveEngineType(engineType)
+  if (resolved !== engineType) {
+    return switchEngine(resolved)
+  }
+
   const slot = getSlot(engineType)
 
   if (

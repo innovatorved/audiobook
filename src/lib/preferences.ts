@@ -1,4 +1,5 @@
 import { usePlayerStore } from '@/stores/playerStore'
+import { resolveEngineType } from '@/lib/tts/deployment'
 import type { TtsEngineType, VoiceInfo } from '@/lib/types'
 
 const STORAGE_KEY = 'audiobook-prefs'
@@ -26,7 +27,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
 }
 
 function normalizeEngine(value: unknown): TtsEngineType {
-  if (value === 'piper' || value === 'kitten') return value
+  if (value === 'piper' || value === 'kitten') return resolveEngineType(value)
   return 'kitten'
 }
 
