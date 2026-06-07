@@ -8,6 +8,7 @@ import {
 import { Scrubber } from '@/components/player/Scrubber'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { formatBytes } from '@/lib/tts/kittenDownload'
+import { browserTtsSupported } from '@/lib/tts/browserSpeech'
 import { isEngineReady } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 
@@ -34,7 +35,11 @@ export function PlayerBar({
     currentSentenceIndex,
     totalSentences,
     activePageNum,
+    engine,
   } = usePlayerStore()
+  const canPlay = engine === 'browser'
+    ? isModelReady && browserTtsSupported()
+    : isModelReady && !isModelLoading && isEngineReady()
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
@@ -74,7 +79,7 @@ export function PlayerBar({
                 size="icon"
                 className="size-10 shrink-0 rounded-full"
                 onClick={onPlayPause}
-                disabled={!isModelReady || isModelLoading || !isEngineReady()}
+                disabled={!canPlay}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (

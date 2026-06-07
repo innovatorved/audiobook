@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { RecommendedBadge } from '@/components/player/RecommendedBadge'
 import {
   Select,
@@ -17,10 +18,14 @@ interface VoicePickerProps {
 }
 
 export function VoicePicker({ voices, value, onChange, className }: VoicePickerProps) {
-  const sorted = [...voices].sort((a, b) => {
-    if (a.recommended === b.recommended) return a.label.localeCompare(b.label)
-    return a.recommended ? -1 : 1
-  })
+  const sorted = useMemo(
+    () =>
+      [...voices].sort((a, b) => {
+        if (a.recommended === b.recommended) return a.label.localeCompare(b.label)
+        return a.recommended ? -1 : 1
+      }),
+    [voices],
+  )
   const selected = voices.find((v) => v.id === value)
 
   return (
@@ -35,7 +40,11 @@ export function VoicePicker({ voices, value, onChange, className }: VoicePickerP
           )}
         </SelectValue>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent
+        position="popper"
+        align="start"
+        className="max-h-80 w-[var(--radix-select-trigger-width)]"
+      >
         {sorted.map((v) => (
           <SelectItem key={v.id} value={v.id}>
             <span className="flex items-center gap-2">

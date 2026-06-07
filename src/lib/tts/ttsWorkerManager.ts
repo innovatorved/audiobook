@@ -111,6 +111,17 @@ export function clearSynthCache(): void {
   synthCache.clear()
 }
 
+export function unloadTtsEngine(): void {
+  clearLoadWatchdog()
+  loadInFlight = false
+  loading = false
+  loaded = false
+  streamContext = null
+  warmupSent = false
+  worker?.terminate()
+  worker = null
+}
+
 function getStore() {
   return usePlayerStore.getState()
 }

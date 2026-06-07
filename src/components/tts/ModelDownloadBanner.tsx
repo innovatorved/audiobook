@@ -1,8 +1,10 @@
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, RotateCcw, Speech } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { savePreferences } from '@/lib/preferences'
 import { formatBytes } from '@/lib/tts/kittenDownload'
-import { switchEngine } from '@/lib/tts/ttsWorkerManager'
+import { prepareBrowserTts } from '@/lib/tts/browserSpeech'
+import { switchEngine, unloadTtsEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import { cn } from '@/lib/utils'
 
@@ -25,10 +27,24 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
           <p className="text-sm font-medium text-destructive">Voice model download failed</p>
         </div>
         <p className="mb-3 text-sm text-muted-foreground">{modelError}</p>
-        <Button size="sm" variant="outline" onClick={() => void switchEngine('kitten')}>
-          <RotateCcw className="size-3.5" />
-          Retry
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => void switchEngine('kitten')}>
+            <RotateCcw className="size-3.5" />
+            Retry
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              unloadTtsEngine()
+              savePreferences({ engine: 'browser' })
+              void prepareBrowserTts()
+            }}
+          >
+            <Speech className="size-3.5" />
+            Use browser voice
+          </Button>
+        </div>
       </div>
     )
   }

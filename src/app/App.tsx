@@ -5,11 +5,16 @@ import { Toaster } from '@/components/ui/sonner'
 import { router } from '@/app/routes'
 import { applyPreferencesToStore } from '@/lib/preferences'
 import { switchEngine } from '@/lib/tts/ttsWorkerManager'
+import { prepareBrowserTts } from '@/lib/tts/browserSpeech'
 
 export function App() {
   useEffect(() => {
-    applyPreferencesToStore()
-    void switchEngine('kitten')
+    const prefs = applyPreferencesToStore()
+    if (prefs.engine === 'browser') {
+      void prepareBrowserTts()
+    } else {
+      void switchEngine('kitten')
+    }
   }, [])
 
   return (

@@ -31,6 +31,7 @@ import { usePlayerStore } from '@/stores/playerStore'
 import { useTtsWorker } from '@/hooks/useTtsWorker'
 import { findClickTargetAtPoint } from '@/lib/pdf/findWordAtPoint'
 import { clearSynthCache, isEngineReady } from '@/lib/tts/ttsWorkerManager'
+import { browserSpeech, prepareBrowserTts } from '@/lib/tts/browserSpeech'
 import { useOcrPrefetch } from '@/hooks/useOcrPrefetch'
 import { useReadingProgress } from '@/hooks/useReadingProgress'
 import type { SentenceInfo, WordPosition } from '@/lib/types'
@@ -318,12 +319,13 @@ export function ReaderPage() {
   useEffect(() => {
     const oldRate = prevSpeedRef.current
     prevSpeedRef.current = speed
+    if (engine === 'browser') return
     audioScheduler.setPlaybackRate(speed)
     if (oldRate !== speed && isPlaying) {
       highlightSync.rescaleTimings(oldRate / speed, audioScheduler.getCurrentTime())
     }
     highlightSync.seekToTime(audioScheduler.getCurrentTime())
-  }, [speed, isPlaying])
+  }, [speed, isPlaying, engine])
 
   useEffect(() => {
     audioScheduler.onSentenceScheduled((sentence) => {
@@ -412,6 +414,39 @@ export function ReaderPage() {
     [sentences, words, sentenceTexts, prefetchSynth, setPlaying],
   )
 
+  const startBrowserSpeech = useCallback(
+    async (fromIndex: number, fromWordIndex?: number) => {
+      if (sentenceTexts.length === 0) return
+      await prepareBrowserTts()
+      if (usePlayerStore.getState().engine !== 'browser') return
+
+      const clamped = Math.max(0, Math.min(fromIndex, sentenceTexts.length - 1))
+      browserSpeech.play({
+        sentenceTexts,
+        sentences,
+        words,
+        startIndex: clamped,
+        startWordIndex: fromWordIndex,
+        voice: usePlayerStore.getState().voice,
+        speed: usePlayerStore.getState().speed,
+        volume: usePlayerStore.getState().volume,
+        onSentence: (sentenceIndex, wordIndex, pageNum) => {
+          setSentenceIndex(sentenceIndex)
+          setActiveWord(wordIndex, pageNum)
+        },
+        onWord: (wordIndex, pageNum) => {
+          setActiveWord(wordIndex, pageNum)
+          setSentenceIndex(sentenceIndexFromWord(words, wordIndex, clamped))
+        },
+        onDone: () => {
+          setPlaying(false)
+          void persist()
+        },
+      })
+    },
+    [sentenceTexts, sentences, words, setSentenceIndex, setActiveWord, setPlaying, persist],
+  )
+
   const beginStream = useCallback(
     async (fromIndex: number, fromWordIndex?: number) => {
       if (sentenceTexts.length === 0) return
@@ -492,8 +527,12 @@ export function ReaderPage() {
     playbackGenRef.current++
     stopStream()
     streamingRef.current = false
-    await audioScheduler.pause()
-    highlightSync.pause()
+    if (usePlayerStore.getState().engine === 'browser') {
+      browserSpeech.pause()
+    } else {
+      await audioScheduler.pause()
+      highlightSync.pause()
+    }
     setPlaying(false)
     void persist()
   }, [stopStream, setPlaying, persist])
@@ -534,6 +573,7 @@ export function ReaderPage() {
       setSentenceIndex(clamped)
 
       streamingRef.current = false
+      browserSpeech.cancel()
       if (isUserClick && autoPlay) {
         audioScheduler.clear()
         highlightSync.pause()
@@ -563,15 +603,21 @@ export function ReaderPage() {
         }
       }
 
-      const engineReady = isEngineReady()
+      const engineReady = engine === 'browser'
+        ? usePlayerStore.getState().engineReady && usePlayerStore.getState().isModelReady
+        : isEngineReady()
       if (!autoPlay || !engineReady) {
         if (autoPlay) {
           pendingClickRef.current = { index: clamped, wordIndex: clickedWord?.globalIndex }
-          ensureEngine()
+          if (engine === 'browser') {
+            void prepareBrowserTts()
+          } else {
+            ensureEngine()
+          }
           if (isUserClick) {
-            toast.info('Loading voice model…', {
+            toast.info(engine === 'browser' ? 'Loading browser voices…' : 'Loading voice model…', {
               id: 'tts-loading',
-              description: 'Playback will start as soon as the model is ready.',
+              description: 'Playback will start as soon as the voice is ready.',
             })
           }
         } else {
@@ -593,10 +639,17 @@ export function ReaderPage() {
       setPlaying(true)
       playbackStartRef.current = Date.now()
       firstChunkLoggedRef.current = false
-      void audioScheduler.ensureContext().then((ctx) => void ctx.resume())
       const fromWord = clickedWord?.globalIndex
 
-      await beginStream(clamped, fromWord)
+      if (engine === 'browser') {
+        stopStream()
+        audioScheduler.clear()
+        highlightSync.clear()
+        await startBrowserSpeech(clamped, fromWord)
+      } else {
+        void audioScheduler.ensureContext().then((ctx) => void ctx.resume())
+        await beginStream(clamped, fromWord)
+      }
       if (gen !== playbackGenRef.current) {
         if (isUserClick) userSeekInProgressRef.current = false
         return
@@ -611,7 +664,9 @@ export function ReaderPage() {
           }
         }
       }
-      startHighlightSync()
+      if (engine !== 'browser') {
+        startHighlightSync()
+      }
       void persist()
     },
     [
@@ -620,8 +675,10 @@ export function ReaderPage() {
       words,
       isModelReady,
       engineReady,
+      engine,
       stopStream,
       beginStream,
+      startBrowserSpeech,
       startHighlightSync,
       setActiveWord,
       setSentenceIndex,
@@ -633,13 +690,17 @@ export function ReaderPage() {
 
   useEffect(() => {
     const pending = pendingClickRef.current
-    if (!pending || !isEngineReady()) return
+    const ready = engine === 'browser'
+      ? usePlayerStore.getState().isModelReady && usePlayerStore.getState().engineReady
+      : isEngineReady()
+    if (!pending || !ready) return
     pendingClickRef.current = null
     toast.dismiss('tts-loading')
     void startFromSentence(pending.index, true, pending.wordIndex)
   }, [isModelReady, engineReady, engine, startFromSentence])
 
   useEffect(() => {
+    if (engine === 'browser') return
     if (!isEngineReady() || sentenceTexts.length === 0) return
     const start = Math.max(0, currentSentenceIndex)
     const preload: string[] = []
@@ -654,6 +715,7 @@ export function ReaderPage() {
   }, [
     isModelReady,
     engineReady,
+    engine,
     sentenceTexts,
     currentSentenceIndex,
     enableContinuousPrefetch,
@@ -661,12 +723,21 @@ export function ReaderPage() {
   ])
 
   const handlePlayPause = useCallback(async () => {
-    if (!isModelReady || !isEngineReady()) {
+    const ready = engine === 'browser'
+      ? usePlayerStore.getState().isModelReady && usePlayerStore.getState().engineReady
+      : isModelReady && isEngineReady()
+    if (!ready) {
       if (!isModelLoading) {
-        ensureEngine()
+        if (engine === 'browser') {
+          void prepareBrowserTts()
+        } else {
+          ensureEngine()
+        }
       }
-      toast.info('Loading voice model…', {
-        description: 'Visit Home first to preload, or wait for the model to finish downloading.',
+      toast.info(engine === 'browser' ? 'Loading browser voices…' : 'Loading voice model…', {
+        description: engine === 'browser'
+          ? 'Browser voices are loading from your system.'
+          : 'Visit Home first to preload, or wait for the model to finish downloading.',
       })
       return
     }
@@ -682,8 +753,12 @@ export function ReaderPage() {
       playbackGenRef.current++
       stopStream()
       streamingRef.current = false
-      await audioScheduler.pause()
-      highlightSync.pause()
+      if (engine === 'browser') {
+        browserSpeech.pause()
+      } else {
+        await audioScheduler.pause()
+        highlightSync.pause()
+      }
       setPlaying(false)
       void persist()
     } else {
@@ -802,12 +877,14 @@ export function ReaderPage() {
 
   const handleLineClick = useCallback(
     (sentenceIndex: number, wordIndex: number) => {
-      void audioScheduler.ensureContext().then((ctx) => ctx.resume())
+      if (engine !== 'browser') {
+        void audioScheduler.ensureContext().then((ctx) => ctx.resume())
+      }
       enableContinuousPrefetch(false)
       userSeekInProgressRef.current = true
       scheduleSeek(sentenceIndex, true, wordIndex)
     },
-    [scheduleSeek, enableContinuousPrefetch],
+    [scheduleSeek, enableContinuousPrefetch, engine],
   )
 
   const handleVoiceChange = useCallback(
@@ -832,6 +909,7 @@ export function ReaderPage() {
       const resumeIndex = getResumeSentenceIndex()
       streamingRef.current = false
       stopStream()
+      browserSpeech.cancel()
       audioScheduler.clear()
       highlightSync.clear()
       resetFollowHighlight()
@@ -876,7 +954,22 @@ export function ReaderPage() {
       clearSynthCache()
       setSpeed(safeSpeed)
       savePreferences({ speed: safeSpeed })
-      audioScheduler.setPlaybackRate(safeSpeed)
+      if (engine === 'browser') {
+        if (isPlaying) {
+          const resumeIndex = getResumeSentenceIndex()
+          const sentence = sentences[resumeIndex]
+          const wordIdx =
+            activeWordIndex >= 0 &&
+            sentence &&
+            activeWordIndex > sentence.startWordIndex
+              ? activeWordIndex
+              : undefined
+          browserSpeech.cancel()
+          void startFromSentence(resumeIndex, true, wordIdx)
+        }
+      } else {
+        audioScheduler.setPlaybackRate(safeSpeed)
+      }
 
       if (docId) {
         void saveMetadata({
@@ -889,7 +982,18 @@ export function ReaderPage() {
         })
       }
     },
-    [setSpeed, docId, isScanned, totalPages],
+    [
+      setSpeed,
+      docId,
+      isScanned,
+      totalPages,
+      engine,
+      isPlaying,
+      activeWordIndex,
+      sentences,
+      getResumeSentenceIndex,
+      startFromSentence,
+    ],
   )
 
   useEffect(() => {

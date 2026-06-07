@@ -1,23 +1,35 @@
 import { usePlayerStore } from '@/stores/playerStore'
-import type { VoiceInfo } from '@/lib/types'
+import type { TtsEngineType, VoiceInfo } from '@/lib/types'
 import { clampPlaybackSpeed } from '@/lib/audio/speed'
 
 const STORAGE_KEY = 'audiobook-prefs'
 const DEFAULT_VOICE = 'Bella'
+const DEFAULT_ENGINE: TtsEngineType = 'kitten'
 
 export interface UserPreferences {
+  engine: TtsEngineType
   voice: string
+  voiceByEngine: Partial<Record<TtsEngineType, string>>
   speed: number
   volume: number
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
+  engine: DEFAULT_ENGINE,
   voice: DEFAULT_VOICE,
+  voiceByEngine: { kitten: DEFAULT_VOICE },
   speed: 1,
   volume: 1,
 }
 
-function normalizeVoice(value: unknown): string {
+function normalizeEngine(value: unknown): TtsEngineType {
+  return value === 'browser' || value === 'kitten' ? value : DEFAULT_ENGINE
+}
+
+function normalizeVoice(value: unknown, engine: TtsEngineType): string {
+  if (engine === 'browser') {
+    return typeof value === 'string' && value.length > 0 ? value : ''
+  }
   if (typeof value === 'string' && value.length > 0 && !value.includes('-')) {
     return value
   }
@@ -30,11 +42,17 @@ export function loadPreferences(): UserPreferences {
     if (!raw) return { ...DEFAULT_PREFERENCES }
     const parsed = JSON.parse(raw) as Partial<UserPreferences> & {
       engine?: unknown
-      voiceByEngine?: { kitten?: string }
+      voiceByEngine?: Partial<Record<TtsEngineType, string>>
     }
-    const legacyVoice = parsed.voiceByEngine?.kitten
+    const engine = normalizeEngine(parsed.engine)
+    const voiceByEngine = {
+      kitten: normalizeVoice(parsed.voiceByEngine?.kitten ?? parsed.voice, 'kitten'),
+      browser: normalizeVoice(parsed.voiceByEngine?.browser, 'browser'),
+    }
     return {
-      voice: normalizeVoice(parsed.voice ?? legacyVoice),
+      engine,
+      voice: normalizeVoice(voiceByEngine[engine] ?? parsed.voice, engine),
+      voiceByEngine,
       speed: clampPlaybackSpeed(parsed.speed ?? DEFAULT_PREFERENCES.speed),
       volume: parsed.volume ?? DEFAULT_PREFERENCES.volume,
     }
@@ -45,8 +63,21 @@ export function loadPreferences(): UserPreferences {
 
 export function savePreferences(patch: Partial<UserPreferences>): UserPreferences {
   const current = loadPreferences()
+  const engine = normalizeEngine(patch.engine ?? current.engine)
+  const voiceByEngine = { ...current.voiceByEngine }
+  if (patch.voice !== undefined) {
+    voiceByEngine[engine] = normalizeVoice(patch.voice, engine)
+  }
+  if (patch.voiceByEngine) {
+    for (const [key, value] of Object.entries(patch.voiceByEngine)) {
+      const entryEngine = normalizeEngine(key)
+      voiceByEngine[entryEngine] = normalizeVoice(value, entryEngine)
+    }
+  }
   const next: UserPreferences = {
-    voice: patch.voice ? normalizeVoice(patch.voice) : current.voice,
+    engine,
+    voice: normalizeVoice(voiceByEngine[engine] ?? current.voice, engine),
+    voiceByEngine,
     speed: clampPlaybackSpeed(patch.speed ?? current.speed),
     volume: patch.volume ?? current.volume,
   }
@@ -54,12 +85,13 @@ export function savePreferences(patch: Partial<UserPreferences>): UserPreference
   return next
 }
 
-export function getPreferredVoice(): string {
-  return loadPreferences().voice
+export function getPreferredVoice(engine = loadPreferences().engine): string {
+  const prefs = loadPreferences()
+  return normalizeVoice(prefs.voiceByEngine[engine] ?? prefs.voice, engine)
 }
 
-export function sanitizeVoice(voice: string): string {
-  return normalizeVoice(voice)
+export function sanitizeVoice(voice: string, engine: TtsEngineType = 'kitten'): string {
+  return normalizeVoice(voice, engine)
 }
 
 export function resolveVoiceForEngine(
@@ -71,7 +103,8 @@ export function resolveVoiceForEngine(
   }
 
   const ids = new Set(voices.map((v) => v.id))
-  const preferred = getPreferredVoice()
+  const engine = usePlayerStore.getState().engine
+  const preferred = getPreferredVoice(engine)
 
   if (currentVoice && ids.has(currentVoice)) return currentVoice
   if (ids.has(preferred)) return preferred
@@ -81,14 +114,15 @@ export function resolveVoiceForEngine(
 }
 
 export function rememberVoice(voice: string): void {
-  savePreferences({ voice })
+  const engine = usePlayerStore.getState().engine
+  savePreferences({ voice, voiceByEngine: { [engine]: voice } })
 }
 
 export function applyPreferencesToStore(): UserPreferences {
   const prefs = loadPreferences()
 
   usePlayerStore.setState({
-    engine: 'kitten',
+    engine: prefs.engine,
     voice: prefs.voice,
     speed: prefs.speed,
     volume: prefs.volume,

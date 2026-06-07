@@ -2,13 +2,23 @@ import type { ReactNode } from 'react'
 import { Slider } from '@/components/ui/slider'
 import { VoicePicker } from '@/components/player/VoicePicker'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   MAX_PLAYBACK_SPEED,
   MIN_PLAYBACK_SPEED,
   PLAYBACK_SPEED_STEP,
   clampPlaybackSpeed,
 } from '@/lib/audio/speed'
 import { rememberVoice, savePreferences } from '@/lib/preferences'
+import { browserSpeech, prepareBrowserTts } from '@/lib/tts/browserSpeech'
+import { clearSynthCache, switchEngine, unloadTtsEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
+import type { TtsEngineType } from '@/lib/types'
 
 interface PlayerSettingsProps {
   onVoiceChange?: (voice: string) => void
@@ -50,12 +60,42 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
     voice,
     voices,
     setVoice,
+    engine,
+    setEngine,
+    setPlaying,
     volume,
     setVolume,
   } = usePlayerStore()
 
+  const handleEngineChange = (nextEngine: TtsEngineType) => {
+    if (nextEngine === engine) return
+    browserSpeech.cancel()
+    clearSynthCache()
+    setPlaying(false)
+    setEngine(nextEngine)
+    savePreferences({ engine: nextEngine })
+    if (nextEngine === 'browser') {
+      unloadTtsEngine()
+      void prepareBrowserTts()
+    } else {
+      void switchEngine('kitten')
+    }
+  }
+
   return (
     <div className="space-y-8">
+      <SettingRow label="Voice engine">
+        <Select value={engine} onValueChange={(value) => handleEngineChange(value as TtsEngineType)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="kitten">Neural voice</SelectItem>
+            <SelectItem value="browser">Browser voice</SelectItem>
+          </SelectContent>
+        </Select>
+      </SettingRow>
+
       <SettingRow label="Voice">
         <VoicePicker
           voices={voices}

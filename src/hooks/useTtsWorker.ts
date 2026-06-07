@@ -15,7 +15,9 @@ import { usePlayerStore } from '@/stores/playerStore'
 
 export function useTtsWorker() {
   const ensureEngine = useCallback(() => {
-    void switchEngine('kitten')
+    if (usePlayerStore.getState().engine === 'kitten') {
+      void switchEngine('kitten')
+    }
   }, [])
 
   const stopStream = useCallback(() => {
