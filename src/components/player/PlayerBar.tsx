@@ -28,7 +28,6 @@ export function PlayerBar({
     isPlaying,
     isModelReady,
     isModelLoading,
-    engine,
     modelProgress,
     modelLoadedBytes,
     modelTotalBytes,
@@ -38,14 +37,14 @@ export function PlayerBar({
   } = usePlayerStore()
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
       <div
         role="region"
         aria-label="Audio player"
-        className="pointer-events-auto w-full max-w-xl rounded-xl border border-border bg-card shadow-md"
+        className="pointer-events-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-white/25 bg-card/75 shadow-lg shadow-black/10 ring-1 ring-black/5 backdrop-blur-xl supports-[backdrop-filter]:bg-card/65"
       >
         {isModelLoading && !isModelReady && (
-          <div className="border-b border-border px-4 py-2">
+          <div className="border-b border-border/40 bg-background/30 px-4 py-2">
             <ProgressBar
               value={modelProgress}
               label={
@@ -57,11 +56,11 @@ export function PlayerBar({
           </div>
         )}
 
-        <div className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
+        <div className="flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-3.5">
           <Button
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="size-9 shrink-0 hover:bg-background/50"
             onClick={onSkipBack}
             aria-label="Previous sentence"
           >
@@ -73,7 +72,7 @@ export function PlayerBar({
               <Button
                 variant="default"
                 size="icon"
-                className="size-10 shrink-0 rounded-full"
+                className="size-11 shrink-0 rounded-full shadow-md shadow-primary/25"
                 onClick={onPlayPause}
                 disabled={!isModelReady || isModelLoading || !isEngineReady()}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
@@ -97,7 +96,7 @@ export function PlayerBar({
           <Button
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="size-9 shrink-0 hover:bg-background/50"
             onClick={onSkipForward}
             aria-label="Next sentence"
           >

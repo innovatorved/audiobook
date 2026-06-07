@@ -30,15 +30,15 @@ function DocCard({ doc }: { doc: DocumentRecord & { progressPct?: number; totalP
   return (
     <Link
       to={`/read/${doc.docId}`}
-      className="flex min-h-[4.5rem] flex-col rounded-xl border border-border bg-card p-4 transition-smooth active:scale-[0.99] hover:border-primary/40"
+      className="block w-full rounded-lg border border-border bg-card transition-smooth hover:border-primary/50 active:scale-[0.99]"
     >
-      <div className="flex items-start gap-3">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+      <div className="flex min-h-[4.5rem] w-full items-center gap-4 px-4 py-5 sm:px-5 sm:py-6">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
           <FileText className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-sm font-medium text-foreground">{doc.name}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {formatPageCount(doc.totalPages)} · {formatRelativeTime(doc.createdAt)}
             {hasProgress && (
               <span className="tabular-nums"> · {doc.progressPct}%</span>
@@ -109,7 +109,7 @@ export function HomePage() {
         {docs.length > 0 ? (
           <section className="mt-8">
             <h2 className="text-sm font-medium text-muted-foreground">Continue reading</h2>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="mt-3 flex w-full flex-col gap-2">
               {docs.map((doc) => (
                 <DocCard key={doc.docId} doc={doc} />
               ))}
