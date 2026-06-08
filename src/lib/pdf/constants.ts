@@ -19,8 +19,8 @@ export const HIGHLIGHT_DISPLAY_RATIO = 0.75
 /** Trailing extend after last word on each sentence line. */
 export const HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX = 20
 
-/** Extend highlight further right — active word. */
-export const HIGHLIGHT_ACTIVE_RIGHT_EXTEND_PX = 10
+/** Extend highlight further right — active word (trailing pad after spoken word). */
+export const HIGHLIGHT_ACTIVE_RIGHT_EXTEND_PX = 20
 
 /** Inset padding around sentence highlight bars (px). */
 export const HIGHLIGHT_SENTENCE_PAD_X = 6

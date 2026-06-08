@@ -128,17 +128,15 @@ export function ReaderPage() {
   const activeWord = words.find((w) => w.globalIndex === activeWordIndex) ?? null
 
   const currentSentence = sentences[currentSentenceIndex]
-  const activeSentence = (() => {
-    if (activeWordIndex >= 0) {
-      return (
-        sentences.find(
+  const activeSentence =
+    currentSentence ??
+    (activeWordIndex >= 0
+      ? sentences.find(
           (s) =>
             activeWordIndex >= s.startWordIndex && activeWordIndex <= s.endWordIndex,
-        ) ?? currentSentence
-      )
-    }
-    return currentSentence
-  })()
+        )
+      : undefined) ??
+    null
   const activeSentenceWords = activeSentence
     ? words.filter(
         (w) =>
@@ -329,6 +327,7 @@ export function ReaderPage() {
 
   useEffect(() => {
     audioScheduler.onSentenceScheduled((sentence) => {
+      if (userSeekInProgressRef.current) return
       setSentenceIndex(sentence.sentenceIndex)
     })
   }, [setSentenceIndex])
@@ -562,24 +561,31 @@ export function ReaderPage() {
         Math.min(clickedWord?.sentenceIndex ?? index, sentenceTexts.length - 1),
       )
 
+      const targetSentence = sentences[clamped]
       if (clickedWord) {
-        setActiveWord(clickedWord.globalIndex, clickedWord.pageNum)
+        usePlayerStore.setState({
+          currentSentenceIndex: clamped,
+          activeWordIndex: clickedWord.globalIndex,
+          activePageNum: clickedWord.pageNum,
+        })
+      } else if (targetSentence) {
+        usePlayerStore.setState({
+          currentSentenceIndex: clamped,
+          activeWordIndex: targetSentence.startWordIndex,
+          activePageNum: targetSentence.pageNum,
+        })
       } else {
-        const sentence = sentences[clamped]
-        if (sentence) {
-          setActiveWord(sentence.startWordIndex, sentence.pageNum)
-        }
+        setSentenceIndex(clamped)
       }
-      setSentenceIndex(clamped)
 
       streamingRef.current = false
       browserSpeech.cancel()
+      stopStream()
       if (isUserClick && autoPlay) {
         audioScheduler.clear()
         highlightSync.pause()
         highlightSync.clear()
       } else {
-        stopStream()
         await audioScheduler.pause()
         highlightSync.pause()
         audioScheduler.clear()
@@ -839,11 +845,6 @@ export function ReaderPage() {
     resetFollowHighlight()
   }, [activePageNum, visiblePage, resetFollowHighlight])
 
-  useEffect(() => {
-    if (activePageNum > 0 && visiblePage === activePageNum) {
-      setUserNavigatedAway(false)
-    }
-  }, [visiblePage, activePageNum])
 
   const visiblePageWordCount = words.filter((w) => w.pageNum === visiblePage).length
   const playbackPage = activePageNum > 0 ? activePageNum : 0

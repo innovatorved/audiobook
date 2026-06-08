@@ -61,16 +61,57 @@ export function PdfScroller({
   const nativePageSizesRef = useRef<Map<number, { width: number; height: number }>>(new Map())
   const userScrolledRef = useRef(false)
   const programmaticScrollUntilRef = useRef(0)
+  const followScrollingRef = useRef(false)
+  const lastAutoScrollTopRef = useRef(0)
+  const autoPageScrollUntilRef = useRef(0)
+  const touchStartYRef = useRef(0)
   const lastFollowedPageRef = useRef(-1)
-  const lastFollowedWordRef = useRef(-1)
+  const followRafRef = useRef<number | null>(null)
+  const activeWordRef = useRef(activeWord)
+  const activePageNumRef = useRef(activePageNum)
+  const followHighlightRef = useRef(followHighlight)
+  const columnWidthRef = useRef(0)
   const initialScrollDoneRef = useRef(false)
-
-  const markProgrammaticScroll = useCallback((durationMs = 400) => {
-    programmaticScrollUntilRef.current = Date.now() + durationMs
-  }, [])
 
   const [heightEstimatesReady, setHeightEstimatesReady] = useState(false)
   const [columnWidth, setColumnWidth] = useState(0)
+
+  useEffect(() => {
+    activeWordRef.current = activeWord
+  }, [activeWord])
+
+  useEffect(() => {
+    activePageNumRef.current = activePageNum
+  }, [activePageNum])
+
+  useEffect(() => {
+    followHighlightRef.current = followHighlight
+  }, [followHighlight])
+
+  useEffect(() => {
+    columnWidthRef.current = columnWidth
+  }, [columnWidth])
+
+  const markProgrammaticScroll = useCallback((durationMs = 400) => {
+    programmaticScrollUntilRef.current = Math.max(
+      programmaticScrollUntilRef.current,
+      Date.now() + durationMs,
+    )
+  }, [])
+
+  const markAutoScrollPosition = useCallback((scrollTop: number) => {
+    lastAutoScrollTopRef.current = scrollTop
+    followScrollingRef.current = true
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        followScrollingRef.current = false
+      })
+    })
+  }, [])
+
+  const markAutoPageScroll = useCallback((durationMs = 450) => {
+    autoPageScrollUntilRef.current = Date.now() + durationMs
+  }, [])
 
   useLayoutEffect(() => {
     const el = columnRef.current
@@ -126,7 +167,7 @@ export function PdfScroller({
     count: totalPages,
     getScrollElement: () => parentRef.current,
     estimateSize,
-    overscan: 2,
+    overscan: followHighlight ? 4 : 2,
   })
 
   useEffect(() => {
@@ -148,8 +189,31 @@ export function PdfScroller({
   useEffect(() => {
     userScrolledRef.current = false
     lastFollowedPageRef.current = -1
-    lastFollowedWordRef.current = -1
   }, [resetFollowKey])
+
+  const computeWordScrollTarget = useCallback(
+    (word: WordPosition, scrollEl: HTMLElement): number | null => {
+      const width = columnWidthRef.current
+      const native = nativePageSizesRef.current.get(word.pageNum)
+      if (!native || width <= 0) return null
+
+      const pageItem = virtualizer
+        .getVirtualItems()
+        .find((item) => item.index + 1 === word.pageNum)
+      if (!pageItem) return null
+
+      const scale = Math.min(1, width / native.width)
+      const wordTop = pageItem.start + word.top * scale
+      return Math.max(0, wordTop - scrollEl.clientHeight * 0.38)
+    },
+    [virtualizer],
+  )
+
+  const isPageInView = useCallback(
+    (pageNum: number) =>
+      virtualizer.getVirtualItems().some((item) => item.index + 1 === pageNum),
+    [virtualizer],
+  )
 
   useEffect(() => {
     if (initialScrollDoneRef.current || !initialPage || initialPage < 1 || !heightEstimatesReady) {
@@ -161,70 +225,140 @@ export function PdfScroller({
   }, [initialPage, virtualizer, heightEstimatesReady, markProgrammaticScroll])
 
   useEffect(() => {
-    if (!followHighlight || userScrolledRef.current || activePageNum < 1) return
-    if (activePageNum === lastFollowedPageRef.current) return
-    lastFollowedPageRef.current = activePageNum
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    markProgrammaticScroll(prefersReducedMotion ? 800 : 1800)
-    virtualizer.scrollToIndex(activePageNum - 1, {
-      align: 'center',
-      behavior: prefersReducedMotion ? 'auto' : 'smooth',
-    })
-  }, [activePageNum, followHighlight, virtualizer, markProgrammaticScroll])
-
-  useEffect(() => {
-    if (!followHighlight || userScrolledRef.current || !activeWord) return
-    if (activeWord.globalIndex === lastFollowedWordRef.current) return
-
-    const scrollEl = parentRef.current
-    if (!scrollEl) return
-
-    const native = nativePageSizesRef.current.get(activeWord.pageNum)
-    if (!native || columnWidth <= 0) return
-
-    const pageItem = virtualizer
-      .getVirtualItems()
-      .find((item) => item.index + 1 === activeWord.pageNum)
-    if (!pageItem) return
-
-    const scale = Math.min(1, columnWidth / native.width)
-    const wordTop = pageItem.start + activeWord.top * scale
-    const wordBottom = wordTop + activeWord.height * scale
-    const viewportTop = scrollEl.scrollTop
-    const viewportBottom = viewportTop + scrollEl.clientHeight
-    const topComfort = scrollEl.clientHeight * 0.28
-    const bottomComfort = scrollEl.clientHeight * 0.68
-
-    if (wordTop >= viewportTop + topComfort && wordBottom <= viewportTop + bottomComfort) {
-      lastFollowedWordRef.current = activeWord.globalIndex
+    if (!followHighlight) {
+      if (followRafRef.current !== null) {
+        cancelAnimationFrame(followRafRef.current)
+        followRafRef.current = null
+      }
       return
     }
 
-    lastFollowedWordRef.current = activeWord.globalIndex
-    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    markProgrammaticScroll(prefersReducedMotion ? 400 : 900)
-    virtualizer.scrollToOffset(Math.max(0, wordTop - scrollEl.clientHeight * 0.42), {
-      behavior: prefersReducedMotion ? 'auto' : 'smooth',
-    })
-  }, [activeWord, columnWidth, followHighlight, virtualizer, markProgrammaticScroll])
+    const prefersReducedMotion = () =>
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const tick = () => {
+      if (!followHighlightRef.current || userScrolledRef.current) {
+        followRafRef.current = requestAnimationFrame(tick)
+        return
+      }
+
+      const scrollEl = parentRef.current
+      const word = activeWordRef.current
+      if (!scrollEl || !word) {
+        followRafRef.current = requestAnimationFrame(tick)
+        return
+      }
+
+      const followPage = word.pageNum > 0 ? word.pageNum : activePageNumRef.current
+      if (followPage > 0 && followPage !== lastFollowedPageRef.current) {
+        lastFollowedPageRef.current = followPage
+        markAutoPageScroll(prefersReducedMotion() ? 200 : 500)
+        virtualizer.scrollToIndex(followPage - 1, {
+          align: 'start',
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        })
+      }
+
+      const target = computeWordScrollTarget(word, scrollEl)
+      if (target !== null) {
+        const diff = target - scrollEl.scrollTop
+        if (Math.abs(diff) > 0.5) {
+          if (prefersReducedMotion()) {
+            scrollEl.scrollTop = target
+          } else {
+            const step = Math.abs(diff) > 240 ? 0.14 : 0.09
+            scrollEl.scrollTop += diff * step
+          }
+          markAutoScrollPosition(scrollEl.scrollTop)
+        }
+      } else if (followPage > 0 && !isPageInView(followPage)) {
+        markAutoPageScroll(500)
+        virtualizer.scrollToIndex(followPage - 1, {
+          align: 'start',
+          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+        })
+      }
+
+      followRafRef.current = requestAnimationFrame(tick)
+    }
+
+    followRafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (followRafRef.current !== null) {
+        cancelAnimationFrame(followRafRef.current)
+        followRafRef.current = null
+      }
+    }
+  }, [
+    followHighlight,
+    activePageNum,
+    virtualizer,
+    markAutoScrollPosition,
+    markAutoPageScroll,
+    computeWordScrollTarget,
+    isPageInView,
+  ])
 
   const lockUserScroll = useCallback(() => {
     markProgrammaticScroll()
   }, [markProgrammaticScroll])
 
-  const isPageInView = useCallback(
-    (pageNum: number) =>
-      virtualizer.getVirtualItems().some((item) => item.index + 1 === pageNum),
-    [virtualizer],
-  )
-
-  const notifyUserNavigate = useCallback(() => {
-    const suppressed = suppressUserNavigateRef?.current === true
-    const programmatic = Date.now() < programmaticScrollUntilRef.current
-    if (suppressed || programmatic) return
+  const markUserScrolled = useCallback(() => {
+    if (suppressUserNavigateRef?.current === true) return
+    if (userScrolledRef.current) return
     userScrolledRef.current = true
     onUserNavigate?.()
   }, [onUserNavigate, suppressUserNavigateRef])
+
+  const handleScroll = useCallback(() => {
+    if (!followHighlightRef.current || userScrolledRef.current) return
+    if (suppressUserNavigateRef?.current === true) return
+    if (followScrollingRef.current) return
+    if (Date.now() < autoPageScrollUntilRef.current) return
+
+    const el = parentRef.current
+    if (!el) return
+
+    const deltaFromAuto = Math.abs(el.scrollTop - lastAutoScrollTopRef.current)
+    if (deltaFromAuto > 8) {
+      markUserScrolled()
+    }
+  }, [markUserScrolled, suppressUserNavigateRef])
+
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+
+    const onWheel = (event: WheelEvent) => {
+      if (!followHighlightRef.current || userScrolledRef.current) return
+      if (suppressUserNavigateRef?.current === true) return
+      if (Math.abs(event.deltaY) > 0 || Math.abs(event.deltaX) > 0) {
+        markUserScrolled()
+      }
+    }
+
+    const onTouchStart = (event: TouchEvent) => {
+      touchStartYRef.current = event.touches[0]?.clientY ?? 0
+    }
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!followHighlightRef.current || userScrolledRef.current) return
+      if (suppressUserNavigateRef?.current === true) return
+      const y = event.touches[0]?.clientY ?? touchStartYRef.current
+      if (Math.abs(y - touchStartYRef.current) > 6) {
+        markUserScrolled()
+      }
+    }
+
+    el.addEventListener('wheel', onWheel, { passive: true })
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+    }
+  }, [markUserScrolled, suppressUserNavigateRef])
 
   const handleLineClick = useCallback(
     (sentenceIndex: number, wordIndex: number) => {
@@ -234,10 +368,6 @@ export function PdfScroller({
     },
     [onLineClick, markProgrammaticScroll, lockUserScroll],
   )
-
-  const handleWheel = useCallback(() => notifyUserNavigate(), [notifyUserNavigate])
-  const handleTouchMove = useCallback(() => notifyUserNavigate(), [notifyUserNavigate])
-  const handleScroll = useCallback(() => notifyUserNavigate(), [notifyUserNavigate])
 
   const scrollToPage = useCallback(
     (pageNum: number, options?: { onlyIfOffscreen?: boolean }) => {
@@ -267,8 +397,6 @@ export function PdfScroller({
     <div
       ref={parentRef}
       className="reader-canvas h-full min-h-0 overflow-x-hidden overflow-y-auto px-4 pb-40 pt-7 sm:px-10 sm:pt-12 sm:pb-44"
-      onWheel={handleWheel}
-      onTouchMove={handleTouchMove}
       onScroll={handleScroll}
     >
       <div

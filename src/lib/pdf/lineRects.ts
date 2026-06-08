@@ -71,6 +71,48 @@ function wordRightEdge(words: WordPosition[], index: number): number {
   return right
 }
 
+function wordRightInPageLine(pageLine: WordPosition[], word: WordPosition): number {
+  const idx = pageLine.findIndex((w) => w.globalIndex === word.globalIndex)
+  if (idx >= 0) return wordRightEdge(pageLine, idx)
+  return word.left + word.width
+}
+
+function sentenceHighlightRight(
+  pageLine: WordPosition[],
+  sentOnLineFromPage: WordPosition[],
+  sentOnLineFromSentence: WordPosition[],
+  pageWords: WordPosition[],
+  bandTop: number,
+  bandBottom: number,
+  sentenceIndex: number,
+): number {
+  let right = 0
+
+  if (sentOnLineFromPage.length > 0) {
+    right = lineRightForSentenceOnPageLine(pageLine, sentOnLineFromPage)
+  }
+  if (sentOnLineFromSentence.length > 0) {
+    const sentenceRight = Math.max(
+      ...sentOnLineFromSentence.map((w) => wordRightInPageLine(pageLine, w)),
+    )
+    right = Math.max(right, sentenceRight)
+  }
+
+  const clickLines = mergePageWordsIntoClickLines(pageWords)
+  for (const clickLine of clickLines) {
+    const lineMidY = clickLine.top + clickLine.height / 2
+    if (Math.abs(lineMidY - (bandTop + bandBottom) / 2) > LINE_TOLERANCE + 6) continue
+
+    const lineWords = pageWords.filter((w) => overlapsVerticalBand(w, bandTop, bandBottom))
+    if (!lineWords.some((w) => w.sentenceIndex === sentenceIndex)) continue
+    if (lineWords.every((w) => w.sentenceIndex === sentenceIndex)) {
+      right = Math.max(right, clickLine.left + clickLine.width)
+    }
+  }
+
+  return right + HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX
+}
+
 function lineRightForSentenceOnPageLine(
   pageOnLine: WordPosition[],
   sentOnLine: WordPosition[],
@@ -82,10 +124,7 @@ function lineRightForSentenceOnPageLine(
     .filter((i) => i >= 0)
 
   if (hitIndices.length === 0) {
-    return (
-      Math.max(...sentOnLine.map((w) => w.left + w.width)) +
-      HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX
-    )
+    return Math.max(...sentOnLine.map((w) => w.left + w.width))
   }
 
   const firstIdx = Math.min(...hitIndices)
@@ -107,11 +146,10 @@ function lineRightForSentenceOnPageLine(
     right = Math.max(right, wordRightEdge(pageOnLine, i))
   }
 
-  const extendedRight = right + HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX
   if (Number.isFinite(nextSentenceLeft)) {
-    return Math.min(extendedRight, Math.max(right, nextSentenceLeft - SENTENCE_BOUNDARY_GAP))
+    return Math.min(right, Math.max(right, nextSentenceLeft - SENTENCE_BOUNDARY_GAP))
   }
-  return extendedRight
+  return right
 }
 
 function lineLeftFromPageWords(
@@ -173,10 +211,14 @@ export function mergeSentenceHighlightRects(
     const bandTop = Math.min(...pageLine.map((w) => w.top))
     const bandBottom = Math.max(...pageLine.map((w) => w.top + w.height))
 
-    const sentOnLine = sentenceWords.filter((w) =>
+    const sentOnLineFromPage = pageLine.filter((w) => w.sentenceIndex === sentenceIndex)
+    const sentOnLineFromSentence = sentenceWords.filter((w) =>
       overlapsVerticalBand(w, bandTop, bandBottom),
     )
-    if (sentOnLine.length === 0) continue
+    if (sentOnLineFromPage.length === 0 && sentOnLineFromSentence.length === 0) continue
+
+    const sentOnLine =
+      sentOnLineFromPage.length > 0 ? sentOnLineFromPage : sentOnLineFromSentence
 
     const minSentLeft = Math.min(...sentOnLine.map((w) => w.left))
     const startIdx = pageLine.findIndex((w) => w.left >= minSentLeft - 48)
@@ -187,7 +229,15 @@ export function mergeSentenceHighlightRects(
     )
 
     const left = lineLeftFromPageWords(pageLine, sentOnLine, resolvedStart)
-    const right = lineRightForSentenceOnPageLine(pageLine, sentOnLine)
+    const right = sentenceHighlightRight(
+      pageLine,
+      sentOnLineFromPage,
+      sentOnLineFromSentence,
+      pageWords,
+      bandTop,
+      bandBottom,
+      sentenceIndex,
+    )
 
     rects.push({
       left,

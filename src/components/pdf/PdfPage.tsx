@@ -63,13 +63,22 @@ export function PdfPage({
   const showActiveWord =
     activeWord && activeWord.pageNum === pageNum ? activeWord : null
 
+  const sentenceWordsOnPage = useMemo(
+    () => activeSentenceWords.filter((w) => w.pageNum === pageNum),
+    [activeSentenceWords, pageNum],
+  )
+
   const sentenceLineRects = useMemo(() => {
-    if (dimensions.width <= 0) return []
-    const onPage = activeSentenceWords.filter((w) =>
-      isOnCanvas(w, dimensions.width, dimensions.height),
-    )
-    return mergeSentenceHighlightRects(onPage, pageWords)
-  }, [activeSentenceWords, pageWords, dimensions.width, dimensions.height])
+    if (dimensions.width <= 0 || sentenceWordsOnPage.length === 0) return []
+    return mergeSentenceHighlightRects(sentenceWordsOnPage, pageWords)
+  }, [sentenceWordsOnPage, pageWords, dimensions.width])
+
+  const showActiveOnCanvas =
+    showActiveWord &&
+    dimensions.width > 0 &&
+    isOnCanvas(showActiveWord, dimensions.width, dimensions.height)
+      ? showActiveWord
+      : null
 
   useEffect(() => {
     if (!page || !isVisible || renderingRef.current) return
@@ -130,10 +139,6 @@ export function PdfPage({
       : { width: '100%', minHeight: 400 }
 
   const showSkeleton = !hasRendered
-  const showActiveOnCanvas =
-    showActiveWord && nativeWidth > 0 && isOnCanvas(showActiveWord, nativeWidth, nativeHeight)
-      ? showActiveWord
-      : null
 
   const pointFromClient = (clientX: number, clientY: number, target: HTMLDivElement) => {
     const rect = target.getBoundingClientRect()
@@ -173,7 +178,7 @@ export function PdfPage({
   return (
     <div className="relative mx-auto mb-12" data-page={pageNum}>
       <div
-        className={`reader-page relative mx-auto overflow-hidden rounded-xl transition-smooth ${onLineClick ? 'cursor-pointer hover:brightness-[1.01]' : ''}`}
+        className={`reader-page relative mx-auto overflow-x-visible overflow-y-hidden rounded-xl transition-smooth ${onLineClick ? 'cursor-pointer hover:brightness-[1.01]' : ''}`}
         style={pageStyle}
         onClick={onLineClick ? handlePageClick : undefined}
         onTouchStart={onLineTouchStart ? handlePageTouchStart : undefined}
