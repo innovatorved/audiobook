@@ -23,6 +23,7 @@ export interface MetadataRecord {
   docId: string
   isScanned: boolean
   totalPages: number
+  totalSentences?: number
   voice: string
   speed: number
   engine: TtsEngineType
@@ -167,6 +168,33 @@ export async function saveDocument(name: string, buffer: ArrayBuffer): Promise<s
 export async function getRecentDocuments(limit = 20): Promise<DocumentRecord[]> {
   await ensureDbOpen()
   return db.documents.orderBy('createdAt').reverse().limit(limit).toArray()
+}
+
+export async function getAllDocuments(): Promise<DocumentRecord[]> {
+  await ensureDbOpen()
+  return db.documents.orderBy('createdAt').reverse().toArray()
+}
+
+export async function renameDocument(docId: string, name: string): Promise<void> {
+  await ensureDbOpen()
+  const trimmed = name.trim()
+  if (!trimmed) {
+    throw new Error('Document name cannot be empty.')
+  }
+  const existing = await db.documents.get(docId)
+  if (!existing) {
+    throw new Error('Document not found.')
+  }
+  await db.documents.put({ ...existing, name: trimmed })
+}
+
+export async function deleteDocument(docId: string): Promise<void> {
+  await ensureDbOpen()
+  await db.transaction('rw', db.documents, db.progress, db.metadata, async () => {
+    await db.documents.delete(docId)
+    await db.progress.delete(docId)
+    await db.metadata.delete(docId)
+  })
 }
 
 export async function getDocument(docId: string): Promise<DocumentRecord | undefined> {

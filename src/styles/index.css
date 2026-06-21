@@ -1,56 +1,64 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme inline {
-  --color-background: var(--quiet-bg);
-  --color-sidebar: var(--quiet-bg);
-  --color-card: var(--quiet-surface);
-  --color-card-foreground: var(--quiet-text);
-  --color-muted: var(--quiet-muted-bg);
-  --color-accent: var(--quiet-muted-bg);
-  --color-border: var(--quiet-border);
+  --color-background: var(--app-bg);
+  --color-sidebar: var(--app-bg);
+  --color-card: var(--app-card);
+  --color-card-foreground: var(--app-text);
+  --color-muted: var(--app-muted);
+  --color-accent: var(--app-muted);
+  --color-border: var(--app-border);
 
-  --color-foreground: var(--quiet-text);
-  --color-muted-foreground: var(--quiet-mute);
+  --color-foreground: var(--app-text);
+  --color-muted-foreground: var(--app-mute);
 
-  --color-primary: var(--quiet-accent);
-  --color-primary-foreground: var(--quiet-accent-fg);
+  --color-primary: var(--app-accent);
+  --color-primary-foreground: var(--app-accent-fg);
 
-  --color-reader: var(--quiet-reader);
-  --color-highlight: var(--quiet-highlight);
-  --color-speaking: var(--quiet-highlight);
-  --color-speaking-active: var(--quiet-highlight-active);
-  --color-speaking-border: var(--quiet-highlight-border);
-  --color-speaking-border-active: var(--quiet-highlight-border-active);
+  --color-reader: var(--app-reader);
+  --color-reader-page: var(--app-reader-page);
+  --color-highlight: var(--app-highlight);
+  --color-speaking: var(--app-highlight);
+  --color-speaking-active: var(--app-highlight-active);
+  --color-speaking-border: var(--app-highlight-border);
+  --color-speaking-border-active: var(--app-highlight-border-active);
 
-  --color-success: var(--quiet-text);
-  --color-success-muted: var(--quiet-surface);
+  --color-success: var(--app-success);
+  --color-success-muted: var(--app-surface);
 
-  --radius-sm: 6px;
+  --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  --radius: 9999px;
 
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
-  --color-ring: var(--quiet-ring);
-  --color-input: var(--quiet-border);
-  --color-destructive: #B91C1C;
-  --color-destructive-foreground: #FFFFFF;
-  --color-popover: var(--quiet-surface);
-  --color-popover-foreground: var(--quiet-text);
-  --color-secondary: var(--quiet-muted-bg);
-  --color-secondary-foreground: var(--quiet-text);
-  --color-accent-foreground: var(--quiet-text);
+  --color-ring: var(--app-ring);
+  --color-input: var(--app-border);
+  --color-destructive: #f3727f;
+  --color-destructive-foreground: #ffffff;
+  --color-popover: var(--app-card);
+  --color-popover-foreground: var(--app-text);
+  --color-secondary: var(--app-muted);
+  --color-secondary-foreground: var(--app-text);
+  --color-accent-foreground: var(--app-text);
 
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 5%);
-  --shadow-md: 0 2px 8px rgb(0 0 0 / 8%);
-  --shadow-page: 0 1px 3px rgb(0 0 0 / 6%);
+  --color-icon: var(--app-icon);
+  --color-icon-active: var(--app-icon-active);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 20%);
+  --shadow-md: 0 2px 8px rgb(0 0 0 / 30%);
+  --shadow-page: 0 1px 3px rgb(0 0 0 / 25%);
   --shadow-page-rich:
-    0 0 0 1px rgb(0 0 0 / 4%),
-    0 2px 4px rgb(0 0 0 / 4%),
-    0 8px 20px rgb(0 0 0 / 8%),
-    0 24px 48px rgb(0 0 0 / 6%);
+    0 0 0 1px rgb(0 0 0 / 8%),
+    0 2px 4px rgb(0 0 0 / 12%),
+    0 8px 20px rgb(0 0 0 / 25%),
+    0 24px 48px rgb(0 0 0 / 20%);
+  --shadow-float: rgba(0, 0, 0, 0.5) 0 8px 24px;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-normal: 150ms;
@@ -59,21 +67,50 @@
 @layer base {
   :root {
     color-scheme: light;
-    --quiet-bg: #E8E8EC;
-    --quiet-surface: #F3F3F6;
-    --quiet-muted-bg: #DDDDE2;
-    --quiet-border: #C8C8D0;
-    --quiet-text: #1C1C22;
-    --quiet-mute: #64646E;
-    --quiet-accent: #4F46E5;
-    --quiet-accent-fg: #FFFFFF;
-    --quiet-ring: rgb(79 70 229 / 40%);
-    --quiet-reader: #D8D8DF;
-    --quiet-reader-accent: #C9C9D4;
-    --quiet-highlight: rgb(254 202 202 / 48%);
-    --quiet-highlight-active: rgb(252 165 165 / 62%);
-    --quiet-highlight-border: rgb(220 38 38 / 58%);
-    --quiet-highlight-border-active: rgb(185 28 28 / 82%);
+    --app-bg: #ffffff;
+    --app-surface: #f6f6f6;
+    --app-muted: #eeeeee;
+    --app-card: #f6f6f6;
+    --app-border: #d9d9d9;
+    --app-text: #121212;
+    --app-mute: #6a6a6a;
+    --app-accent: #1db954;
+    --app-accent-fg: #ffffff;
+    --app-ring: rgb(29 185 84 / 40%);
+    --app-reader: #e8e8e8;
+    --app-reader-accent: #f0f0f0;
+    --app-reader-page: #ffffff;
+    --app-highlight: rgb(29 185 84 / 25%);
+    --app-highlight-active: rgb(29 185 84 / 40%);
+    --app-highlight-border: rgb(29 185 84 / 50%);
+    --app-highlight-border-active: rgb(29 185 84 / 70%);
+    --app-success: #1db954;
+    --app-icon: #6a6a6a;
+    --app-icon-active: #121212;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+    --app-bg: #121212;
+    --app-surface: #181818;
+    --app-muted: #1f1f1f;
+    --app-card: #252525;
+    --app-border: #4d4d4d;
+    --app-text: #ffffff;
+    --app-mute: #b3b3b3;
+    --app-accent: #1ed760;
+    --app-accent-fg: #121212;
+    --app-ring: rgb(30 215 96 / 40%);
+    --app-reader: #0a0a0a;
+    --app-reader-accent: #121212;
+    --app-reader-page: #ffffff;
+    --app-highlight: rgb(30 215 96 / 30%);
+    --app-highlight-active: rgb(30 215 96 / 45%);
+    --app-highlight-border: rgb(30 215 96 / 55%);
+    --app-highlight-border-active: rgb(30 215 96 / 75%);
+    --app-success: #1ed760;
+    --app-icon: #b3b3b3;
+    --app-icon-active: #ffffff;
   }
 
   * {
@@ -95,6 +132,16 @@
     font-size: 16px;
     line-height: 1.5;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 @layer utilities {
@@ -105,16 +152,14 @@
   }
 
   .reader-canvas {
-    background:
-      radial-gradient(ellipse 120% 80% at 50% 0%, rgb(255 255 255 / 55%), transparent 55%),
-      linear-gradient(180deg, var(--quiet-reader-accent) 0%, var(--color-reader) 42%, #D0D0D8 100%);
+    background: linear-gradient(180deg, var(--app-reader-accent) 0%, var(--color-reader) 100%);
   }
 
   .reader-page {
-    background-color: #FEFEFE;
-    color: #1C1C22;
+    background-color: var(--color-reader-page);
+    color: #121212;
     box-shadow: var(--shadow-page-rich);
-    border: 1px solid rgb(255 255 255 / 80%);
+    border: 1px solid rgb(0 0 0 / 8%);
   }
 
   .reader-page-canvas {
@@ -122,42 +167,49 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  .word-active-underline {
-    background:
-      linear-gradient(transparent calc(100% - 3px), var(--quiet-highlight-border-active) calc(100% - 3px));
-  }
-
   .home-hero {
-    background:
-      radial-gradient(ellipse 80% 50% at 50% -10%, rgb(79 70 229 / 8%), transparent),
-      var(--color-background);
+    background: var(--color-background);
   }
 
   .surface-panel {
-    border-radius: var(--radius-lg);
-    background-color: var(--quiet-surface);
+    border-radius: var(--radius-md);
+    background-color: var(--app-card);
     box-shadow: var(--shadow-sm);
+    border: 1px solid rgb(255 255 255 / 6%);
+  }
+
+  :root:not(.dark) .surface-panel {
+    background-color: var(--app-surface);
+    border-color: var(--app-border);
   }
 
   .surface-float {
-    border-radius: var(--radius-lg);
-    background-color: rgb(243 243 246 / 88%);
-    box-shadow:
-      0 4px 24px rgb(28 28 34 / 10%),
-      0 1px 2px rgb(28 28 34 / 4%);
-    backdrop-filter: blur(16px);
+    border-radius: var(--radius-md);
+    background-color: var(--app-surface);
+    box-shadow: var(--shadow-float);
+    border: 1px solid rgb(255 255 255 / 6%);
+  }
+
+  :root:not(.dark) .surface-float {
+    border-color: var(--app-border);
   }
 
   .chrome-bar {
-    background-color: rgb(232 232 236 / 82%);
-    backdrop-filter: blur(12px);
-    box-shadow: 0 1px 0 rgb(28 28 34 / 6%);
+    background-color: var(--app-bg);
+    border-bottom: 1px solid rgb(255 255 255 / 6%);
+  }
+
+  :root:not(.dark) .chrome-bar {
+    border-bottom-color: var(--app-border);
   }
 
   .reader-chrome {
-    background-color: rgb(216 216 223 / 78%);
-    backdrop-filter: blur(14px) saturate(1.05);
-    box-shadow: 0 1px 0 rgb(28 28 34 / 5%);
+    background-color: var(--app-bg);
+    border-bottom: 1px solid rgb(255 255 255 / 6%);
+  }
+
+  :root:not(.dark) .reader-chrome {
+    border-bottom-color: var(--app-border);
   }
 
   .icon-touch {
@@ -166,18 +218,31 @@
     align-items: center;
     justify-content: center;
     border-radius: 9999px;
-    color: var(--quiet-mute);
+    color: var(--app-icon);
     transition-property: color, background-color;
     transition-duration: var(--duration-normal);
     transition-timing-function: var(--ease-out);
   }
 
   .icon-touch:hover {
-    background-color: rgb(28 28 34 / 6%);
-    color: var(--quiet-text);
+    background-color: var(--app-muted);
+    color: var(--app-icon-active);
   }
 
   .icon-touch:active {
-    background-color: rgb(28 28 34 / 10%);
+    background-color: var(--app-card);
+  }
+
+  .icon-muted {
+    color: var(--app-icon);
+  }
+
+  .icon-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    background-color: var(--app-muted);
+    color: var(--app-icon);
   }
 }

@@ -6,12 +6,15 @@ const STORAGE_KEY = 'audiobook-prefs'
 const DEFAULT_VOICE = 'Bella'
 const DEFAULT_ENGINE: TtsEngineType = 'kitten'
 
+export type ThemePreference = 'light' | 'dark' | 'system'
+
 export interface UserPreferences {
   engine: TtsEngineType
   voice: string
   voiceByEngine: Partial<Record<TtsEngineType, string>>
   speed: number
   volume: number
+  theme: ThemePreference
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -20,6 +23,12 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   voiceByEngine: { kitten: DEFAULT_VOICE },
   speed: 1,
   volume: 1,
+  theme: 'dark',
+}
+
+function normalizeTheme(value: unknown): ThemePreference {
+  if (value === 'light' || value === 'dark' || value === 'system') return value
+  return DEFAULT_PREFERENCES.theme
 }
 
 function normalizeEngine(value: unknown): TtsEngineType {
@@ -55,6 +64,7 @@ export function loadPreferences(): UserPreferences {
       voiceByEngine,
       speed: clampPlaybackSpeed(parsed.speed ?? DEFAULT_PREFERENCES.speed),
       volume: parsed.volume ?? DEFAULT_PREFERENCES.volume,
+      theme: normalizeTheme(parsed.theme),
     }
   } catch {
     return { ...DEFAULT_PREFERENCES }
@@ -80,6 +90,7 @@ export function savePreferences(patch: Partial<UserPreferences>): UserPreference
     voiceByEngine,
     speed: clampPlaybackSpeed(patch.speed ?? current.speed),
     volume: patch.volume ?? current.volume,
+    theme: normalizeTheme(patch.theme ?? current.theme),
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
   return next

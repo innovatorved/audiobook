@@ -35,8 +35,8 @@ export function WordHighlight({ word, rect, variant, interactive, onClick }: Wor
       ? '1.5px solid var(--color-speaking-border-active)'
       : '1px solid var(--color-speaking-border)',
     boxShadow: isActive
-      ? '0 0 0 1px rgb(185 28 28 / 12%)'
-      : '0 0 0 1px rgb(220 38 38 / 10%)',
+      ? '0 0 0 1px var(--color-speaking-border-active)'
+      : '0 0 0 1px var(--color-speaking-border)',
   }
 
   return (

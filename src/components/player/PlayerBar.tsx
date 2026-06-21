@@ -11,6 +11,7 @@ import { formatBytes } from '@/lib/tts/kittenDownload'
 import { browserTtsSupported } from '@/lib/tts/browserSpeech'
 import { isEngineReady } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
+import { cn } from '@/lib/utils'
 
 interface PlayerBarProps {
   onPlayPause: () => void
@@ -65,7 +66,7 @@ export function PlayerBar({
           <Button
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="size-9 shrink-0 text-muted-foreground hover:text-foreground"
             onClick={onSkipBack}
             aria-label="Previous sentence"
           >
@@ -75,17 +76,20 @@ export function PlayerBar({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant="default"
-                size="icon"
-                className="size-10 shrink-0 rounded-full"
+                variant="ghost"
+                size="icon-lg"
+                className={cn(
+                  'shrink-0 text-foreground hover:text-foreground',
+                  !canPlay && 'opacity-50',
+                )}
                 onClick={onPlayPause}
                 disabled={!canPlay}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (
-                  <Pause className="size-4" fill="currentColor" />
+                  <Pause className="size-5" fill="currentColor" />
                 ) : (
-                  <Play className="ml-0.5 size-4" fill="currentColor" />
+                  <Play className="ml-0.5 size-5" fill="currentColor" />
                 )}
               </Button>
             </TooltipTrigger>
@@ -101,7 +105,7 @@ export function PlayerBar({
           <Button
             variant="ghost"
             size="icon"
-            className="size-9 shrink-0"
+            className="size-9 shrink-0 text-muted-foreground hover:text-foreground"
             onClick={onSkipForward}
             aria-label="Next sentence"
           >

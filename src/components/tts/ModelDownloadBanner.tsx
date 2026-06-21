@@ -71,8 +71,8 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
 
       {isModelReady && !isModelLoading && (
         <p className="text-center text-xs text-muted-foreground">
-          <CheckCircle2 className="mr-1 inline size-3.5 text-success" />
-          Voice ready — upload a PDF to start listening
+          <CheckCircle2 className="mr-1 inline size-3.5 text-primary" aria-hidden />
+          Voice ready
         </p>
       )}
     </div>

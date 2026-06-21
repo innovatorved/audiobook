@@ -1,3 +1,4 @@
+import { Link } from 'react-router'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import {
   Sheet,
@@ -27,16 +28,25 @@ export function SettingsSheet({ trigger, onVoiceChange }: SettingsSheetProps) {
         className={cn(
           'flex flex-col gap-0 border-0 p-0 shadow-none',
           isDesktop
-            ? 'h-dvh max-h-dvh shadow-[-12px_0_40px_rgb(28_28_34/0.08)]'
-            : 'h-[92dvh] max-h-[92dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_32px_rgb(28_28_34/0.1)]',
+            ? 'h-dvh max-h-dvh shadow-[-12px_0_40px_rgb(0_0_0/0.35)]'
+            : 'h-[92dvh] max-h-[92dvh] rounded-t-2xl pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_32px_rgb(0_0_0/0.4)]',
         )}
       >
-        <SheetHeader className="shrink-0 px-6 py-5 text-left shadow-[0_1px_0_rgb(28_28_34/0.06)]">
-          <SheetTitle className="text-base font-semibold">Settings</SheetTitle>
+        <SheetHeader className="shrink-0 border-b border-border px-6 py-5 text-left">
+          <SheetTitle className="text-base font-bold">Playback</SheetTitle>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-6">
           <PlayerSettings onVoiceChange={onVoiceChange} />
+        </div>
+
+        <div className="shrink-0 border-t border-border px-6 py-4">
+          <Link
+            to="/settings"
+            className="text-sm font-semibold text-foreground transition-smooth hover:underline"
+          >
+            All settings
+          </Link>
         </div>
       </SheetContent>
     </Sheet>

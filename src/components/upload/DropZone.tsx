@@ -61,8 +61,8 @@ export function DropZone({ className }: DropZoneProps) {
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
       className={cn(
-        'surface-panel block cursor-pointer transition-smooth focus-within:ring-2 focus-within:ring-ring/50',
-        isDragging ? 'bg-background shadow-md' : 'hover:shadow-md',
+        'surface-panel block cursor-pointer transition-smooth focus-within:ring-2 focus-within:ring-primary/50',
+        isDragging && 'border-primary ring-1 ring-primary/30',
         isUploading && 'pointer-events-none opacity-70',
         className,
       )}
@@ -81,13 +81,12 @@ export function DropZone({ className }: DropZoneProps) {
         }}
       />
 
-      <div className="flex min-h-[4.5rem] items-center gap-4 px-4 py-5 sm:px-5 sm:py-6">
+        <div className="flex min-h-[4.5rem] items-center gap-4 px-4 py-5 sm:px-5 sm:py-6">
         <div
           className={cn(
-            'flex size-10 shrink-0 items-center justify-center rounded-md',
-            isDragging || isUploading
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground',
+            'icon-tile size-11 shrink-0 border border-dashed border-border',
+            isDragging && 'border-primary bg-primary/10 text-primary',
+            isUploading && 'text-primary',
           )}
         >
           {isUploading ? (
@@ -103,10 +102,10 @@ export function DropZone({ className }: DropZoneProps) {
               ? 'Opening PDF…'
               : isDragging
                 ? 'Drop to open'
-                : 'Upload a PDF'}
+                : 'Choose a PDF'}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Drag and drop, or click to choose a file
+            Drag and drop here, or click to browse
           </p>
         </div>
       </div>

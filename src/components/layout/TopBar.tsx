@@ -12,9 +12,9 @@ interface TopBarProps {
 export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
   return (
     <header className="reader-chrome sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top)]">
-      <div className="flex h-14 items-center gap-2 px-3 sm:gap-3 sm:px-5">
+      <div className="flex h-12 items-center gap-2 px-3 sm:gap-3 sm:px-5">
         <Link
-          to="/"
+          to="/library"
           aria-label="Back to library"
           className="icon-touch size-10"
         >
@@ -22,11 +22,11 @@ export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
         </Link>
 
         <div className="min-w-0 flex-1 text-center sm:px-2 sm:text-left">
-          <h1 className="truncate text-[0.9375rem] font-semibold leading-snug tracking-[-0.01em] text-foreground">
+          <h1 className="truncate text-sm font-semibold leading-snug tracking-tight text-foreground">
             {title}
           </h1>
           {pageIndicator && (
-            <p className="truncate text-[0.6875rem] leading-snug text-muted-foreground">
+            <p className="truncate text-xs leading-snug text-muted-foreground">
               {pageIndicator}
             </p>
           )}

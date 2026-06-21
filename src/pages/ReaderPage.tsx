@@ -8,7 +8,6 @@ import { ReaderReturnBanner } from '@/components/pdf/ReaderReturnBanner'
 import { PlayerBar } from '@/components/player/PlayerBar'
 import { LoadingOverlay } from '@/components/ui/LoadingOverlay'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
 import { pdfjs } from '@/lib/pdf/setup'
 import { isScannedPdf } from '@/lib/pdf/detect'
 import { extractAllDigitalWords } from '@/lib/pdf/extract'
@@ -303,8 +302,17 @@ export function ReaderPage() {
   useEffect(() => {
     if (sentenceTexts.length > 0) {
       setTotalSentences(sentenceTexts.length)
+      if (docId) {
+        void getMetadata(docId).then((metadata) => {
+          if (!metadata) return
+          void saveMetadata({
+            ...metadata,
+            totalSentences: sentenceTexts.length,
+          })
+        })
+      }
     }
-  }, [sentenceTexts.length, setTotalSentences])
+  }, [sentenceTexts.length, setTotalSentences, docId])
 
   useEffect(() => {
     const warmAudio = () => {
@@ -1032,7 +1040,7 @@ export function ReaderPage() {
 
   if (isLoading || !pdfDoc) {
     return (
-      <div className="relative flex h-screen flex-col overflow-hidden bg-background">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
         <div className="flex h-12 items-center gap-3 px-3 sm:px-4">
           <Skeleton className="size-8 rounded-lg" />
           <div className="space-y-1.5">
@@ -1049,19 +1057,18 @@ export function ReaderPage() {
     )
   }
 
+  const pageLabel =
+    visiblePage !== activePageNum
+      ? `Viewing page ${visiblePage} · Playing page ${activePageNum} of ${totalPages}`
+      : `Page ${activePageNum} of ${totalPages}`
+
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden">
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
       <TopBar
         title={docName}
-        pageIndicator={`Page ${activePageNum} of ${totalPages}`}
+        pageIndicator={pageLabel}
         onVoiceChange={handleVoiceChange}
       />
-
-      {(isModelLoading || modelError) && (
-        <div className="px-3 pt-2 sm:px-4">
-          <ModelDownloadBanner />
-        </div>
-      )}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {isExtracting && isScanned && (

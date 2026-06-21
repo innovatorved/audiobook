@@ -1,123 +1,70 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router'
-import { FileText } from 'lucide-react'
 import { DropZone } from '@/components/upload/DropZone'
 import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
-import { Progress } from '@/components/ui/progress'
+import { DocumentRow } from '@/components/library/DocumentRow'
+import { loadRecentDocumentsWithProgress, type DocumentWithProgress } from '@/lib/documents'
 import { applyPreferencesToStore } from '@/lib/preferences'
 import { switchEngine } from '@/lib/tts/ttsWorkerManager'
-import { getMetadata, getRecentDocuments, getProgress, type DocumentRecord } from '@/lib/db/index'
-
-function formatRelativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp
-  const minutes = Math.floor(diff / 60000)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days === 1) return 'Yesterday'
-  return `${days}d ago`
-}
-
-function formatPageCount(totalPages?: number): string {
-  if (!totalPages) return 'PDF'
-  return `${totalPages} ${totalPages === 1 ? 'page' : 'pages'}`
-}
-
-function DocCard({ doc }: { doc: DocumentRecord & { progressPct?: number; totalPages?: number } }) {
-  const hasProgress = doc.progressPct !== undefined && doc.progressPct > 0
-
-  return (
-    <Link
-      to={`/read/${doc.docId}`}
-      className="block w-full transition-smooth hover:bg-muted/35 active:bg-muted/50"
-    >
-      <div className="flex min-h-[4.5rem] w-full items-center gap-4 px-4 py-4 sm:px-5 sm:py-5">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <FileText className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm font-medium text-foreground">{doc.name}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {formatPageCount(doc.totalPages)} · {formatRelativeTime(doc.createdAt)}
-            {hasProgress && (
-              <span className="tabular-nums"> · {doc.progressPct}%</span>
-            )}
-          </p>
-          {hasProgress && (
-            <Progress value={doc.progressPct} className="mt-2.5 h-1" />
-          )}
-        </div>
-      </div>
-    </Link>
-  )
-}
 
 export function HomePage() {
-  const [docs, setDocs] = useState<Array<DocumentRecord & { progressPct?: number; totalPages?: number }>>([])
+  const [docs, setDocs] = useState<DocumentWithProgress[]>([])
+
+  const refreshDocs = useCallback(() => {
+    void loadRecentDocumentsWithProgress(5).then(setDocs).catch((err) => {
+      console.error('[Home] Failed to load recent documents:', err)
+    })
+  }, [])
 
   useEffect(() => {
     applyPreferencesToStore()
     void switchEngine('kitten')
-  }, [])
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const recent = await getRecentDocuments()
-        const withProgress = await Promise.all(
-          recent.map(async (doc) => {
-            const [progress, metadata] = await Promise.all([
-              getProgress(doc.docId),
-              getMetadata(doc.docId),
-            ])
-            return {
-              ...doc,
-              progressPct: progress ? Math.min(100, progress.sentenceIndex * 2) : 0,
-              totalPages: metadata?.totalPages,
-            }
-          }),
-        )
-        setDocs(withProgress)
-      } catch (err) {
-        console.error('[Home] Failed to load recent documents:', err)
-      }
-    })()
-  }, [])
+    refreshDocs()
+  }, [refreshDocs])
 
   return (
     <div className="home-hero flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-12">
+      <div className="mx-auto max-w-2xl px-4 py-8 pb-[max(5rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-12">
         <div className="text-center sm:text-left">
-          <p className="text-xs text-muted-foreground">Private · works offline</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+          <p className="text-xs text-muted-foreground">
+            Private · works offline
+          </p>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
             Turn PDFs into audiobooks
           </h1>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground sm:mx-0 sm:text-base">
+          <p className="mx-auto mt-3 max-w-md text-base leading-relaxed text-muted-foreground sm:mx-0">
             Upload a document and listen with word-by-word highlighting.
           </p>
         </div>
 
-        <section className="mt-6">
+        <section className="mt-8">
           <ModelDownloadBanner />
         </section>
 
-        <section className="mt-5">
+        <section className="mt-6">
           <DropZone />
         </section>
 
         {docs.length > 0 ? (
-          <section className="mt-8">
-            <h2 className="text-sm font-medium text-muted-foreground">Continue reading</h2>
-            <div className="surface-panel mt-3 divide-y divide-foreground/6 overflow-hidden">
+          <section className="mt-10">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="text-lg font-bold text-foreground">Continue reading</h2>
+              <Link
+                to="/library"
+                className="text-sm font-semibold text-foreground transition-smooth hover:underline"
+              >
+                View all
+              </Link>
+            </div>
+            <div className="surface-panel mt-3 divide-y divide-border overflow-hidden">
               {docs.map((doc) => (
-                <DocCard key={doc.docId} doc={doc} />
+                <DocumentRow key={doc.docId} doc={doc} onUpdated={refreshDocs} compact />
               ))}
             </div>
           </section>
         ) : (
-          <p className="mt-8 text-center text-sm text-muted-foreground">
-            No documents yet — upload a PDF above to get started.
+          <p className="mt-10 text-center text-sm text-muted-foreground">
+            No documents yet. Upload a PDF above to get started.
           </p>
         )}
       </div>

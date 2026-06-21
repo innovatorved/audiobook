@@ -7,7 +7,7 @@ const SIZE: Record<
   AppLogoSize,
   { frame: string; icon: string; radius: string; stroke: number }
 > = {
-  sm: { frame: 'size-7', icon: 'size-3.5', radius: 'rounded-md', stroke: 2.25 },
+  sm: { frame: 'size-7', icon: 'size-3.5', radius: 'rounded-full', stroke: 2.25 },
   md: { frame: 'size-11', icon: 'size-5', radius: 'rounded-xl', stroke: 2.25 },
   lg: { frame: 'size-20', icon: 'size-10', radius: 'rounded-2xl', stroke: 2 },
 }
@@ -15,20 +15,15 @@ const SIZE: Record<
 interface AppLogoProps {
   size?: AppLogoSize
   className?: string
-  rich?: boolean
 }
 
-export function AppLogo({ size = 'sm', className, rich = false }: AppLogoProps) {
+export function AppLogo({ size = 'sm', className }: AppLogoProps) {
   const dims = SIZE[size]
-  const useRichFrame = rich || size === 'lg'
 
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center justify-center text-primary-foreground',
-        useRichFrame
-          ? 'bg-gradient-to-br from-primary via-primary to-indigo-700 shadow-md shadow-primary/25 ring-1 ring-white/15'
-          : 'bg-primary',
+        'inline-flex shrink-0 items-center justify-center bg-primary text-[#121212]',
         dims.frame,
         dims.radius,
         className,

@@ -3,12 +3,17 @@ import { RouterProvider } from 'react-router/dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { router } from '@/app/routes'
-import { applyPreferencesToStore } from '@/lib/preferences'
+import { applyPreferencesToStore, loadPreferences } from '@/lib/preferences'
+import { applyTheme } from '@/lib/theme'
+import { useTheme } from '@/hooks/useTheme'
 import { switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { prepareBrowserTts } from '@/lib/tts/browserSpeech'
 
-export function App() {
+function AppContent() {
+  const theme = useTheme()
+
   useEffect(() => {
+    applyTheme(loadPreferences().theme)
     const prefs = applyPreferencesToStore()
     if (prefs.engine === 'browser') {
       void prepareBrowserTts()
@@ -18,9 +23,17 @@ export function App() {
   }, [])
 
   return (
-    <TooltipProvider>
+    <>
       <RouterProvider router={router} />
-      <Toaster position="bottom-right" closeButton />
+      <Toaster position="bottom-right" closeButton theme={theme} />
+    </>
+  )
+}
+
+export function App() {
+  return (
+    <TooltipProvider>
+      <AppContent />
     </TooltipProvider>
   )
 }
