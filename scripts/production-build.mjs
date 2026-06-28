@@ -12,6 +12,7 @@ export function isCloudflarePages() {
 const cfPages = isCloudflarePages()
 const env = { ...process.env, CF_PAGES: cfPages ? '1' : process.env.CF_PAGES ?? '' }
 
+console.log('[build] Fetching voice model (ORT conversion requires Python 3)…')
 execSync('node scripts/fetch-kitten-model.mjs', { stdio: 'inherit', env })
 
 if (cfPages) {

@@ -8,11 +8,13 @@ export type KittenDownloadProgress = {
   status: 'downloading' | 'cached' | 'ready'
 }
 
+type FileMeta = { size: number; parts: number }
+
 async function fetchBuffer(
   url: string,
   onBytes: (delta: number) => void,
 ): Promise<ArrayBuffer> {
-  const resp = await fetch(url)
+  const resp = await fetch(url, { cache: 'force-cache' })
   if (!resp.ok) throw new Error(`HTTP ${resp.status} loading ${url}`)
   if (!resp.body) {
     const buf = await resp.arrayBuffer()
@@ -38,27 +40,38 @@ async function fetchBuffer(
   return out.buffer
 }
 
-async function fetchChunked(
+function fileUrls(filename: string, meta: FileMeta): string[] {
+  if (meta.parts === 1) {
+    return [`${MODEL_BASE}/${filename}`]
+  }
+  return Array.from({ length: meta.parts }, (_, i) => `${MODEL_BASE}/${filename}.part${i}`)
+}
+
+async function fetchFile(
   filename: string,
-  parts: number,
-  size: number,
+  meta: FileMeta,
   onBytes: (delta: number) => void,
 ): Promise<ArrayBuffer> {
-  if (parts === 1) {
-    return fetchBuffer(`${MODEL_BASE}/${filename}`, onBytes)
+  const urls = fileUrls(filename, meta)
+  if (urls.length === 1) {
+    return fetchBuffer(urls[0], onBytes)
   }
-  const buffers = await Promise.all(
-    Array.from({ length: parts }, (_, i) =>
-      fetchBuffer(`${MODEL_BASE}/${filename}.part${i}`, onBytes),
-    ),
-  )
-  const combined = new Uint8Array(size)
+  const buffers = await Promise.all(urls.map((url) => fetchBuffer(url, onBytes)))
+  const combined = new Uint8Array(meta.size)
   let offset = 0
   for (const buf of buffers) {
     combined.set(new Uint8Array(buf), offset)
     offset += buf.byteLength
   }
   return combined.buffer
+}
+
+function findModelFile(manifest: KittenManifest): string {
+  const modelFile = Object.keys(manifest.files).find((name) => name.endsWith('.ort'))
+  if (!modelFile) {
+    throw new Error('Manifest missing ORT model file')
+  }
+  return modelFile
 }
 
 export async function downloadKittenModel(
@@ -69,7 +82,7 @@ export async function downloadKittenModel(
   const resolvedManifest =
     manifest ??
     (await (async () => {
-      const resp = await fetch(`${MODEL_BASE}/manifest.json`)
+      const resp = await fetch(`${MODEL_BASE}/manifest.json`, { cache: 'force-cache' })
       if (!resp.ok) {
         throw new Error(
           'Voice model bundle missing. Rebuild and redeploy with npm run build.',
@@ -88,22 +101,21 @@ export async function downloadKittenModel(
   onProgress({ loaded: 0, total: totalSize, status: 'downloading' })
 
   const configMeta = resolvedManifest.files['config.json']
-  if (!configMeta) throw new Error('Manifest missing config.json')
-  const configBuffer = await fetchChunked('config.json', configMeta.parts, configMeta.size, tick)
-  const config = JSON.parse(new TextDecoder().decode(configBuffer)) as Record<string, unknown>
-
-  const modelFile = config.model_file as string | undefined
-  const voicesFile = (config.voices as string | undefined) ?? 'voices.npz'
-  if (!modelFile) throw new Error("config.json missing 'model_file'")
+  const voicesFile = 'voices.npz'
+  const modelFile = findModelFile(resolvedManifest)
   const modelMeta = resolvedManifest.files[modelFile]
   const voicesMeta = resolvedManifest.files[voicesFile]
+  if (!configMeta) throw new Error('Manifest missing config.json')
   if (!modelMeta) throw new Error(`Manifest missing ${modelFile}`)
   if (!voicesMeta) throw new Error(`Manifest missing ${voicesFile}`)
 
-  const [modelBuffer, voicesBuffer] = await Promise.all([
-    fetchChunked(modelFile, modelMeta.parts, modelMeta.size, tick),
-    fetchChunked(voicesFile, voicesMeta.parts, voicesMeta.size, tick),
+  const [configBuffer, modelBuffer, voicesBuffer] = await Promise.all([
+    fetchFile('config.json', configMeta, tick),
+    fetchFile(modelFile, modelMeta, tick),
+    fetchFile(voicesFile, voicesMeta, tick),
   ])
+
+  const config = JSON.parse(new TextDecoder().decode(configBuffer)) as Record<string, unknown>
 
   onProgress({ loaded: totalSize, total: totalSize, status: 'ready' })
   return { modelBuffer, voicesBuffer, config }
@@ -113,4 +125,30 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** Preload manifest + model parts so download starts before app JS boots. */
+export function preloadKittenModelAssets(): void {
+  if (typeof document === 'undefined') return
+  const hints = [
+    '/kitten-model/manifest.json',
+    '/kitten-model/config.json',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part0',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part1',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part2',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part3',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part4',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part5',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part6',
+    '/kitten-model/voices.npz',
+  ]
+  for (const href of hints) {
+    if (document.querySelector(`link[rel="preload"][href="${href}"]`)) continue
+    const link = document.createElement('link')
+    link.rel = 'preload'
+    link.href = href
+    link.as = 'fetch'
+    link.crossOrigin = 'anonymous'
+    document.head.appendChild(link)
+  }
 }

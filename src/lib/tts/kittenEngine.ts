@@ -4,14 +4,13 @@ import type { ProgressCallback, VoiceInfo } from '@/lib/types'
 import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engine'
 import type { InferenceSession } from 'onnxruntime-web/wasm'
 
-const ESTIMATED_BYTES = 43 * 1024 * 1024
+const ESTIMATED_BYTES = 58 * 1024 * 1024
 const ORT_INIT_TIMEOUT_MS = 90_000
-const PROXY_COMPILE_TIMEOUT_MS = 60_000
-const DIRECT_COMPILE_TIMEOUT_MS = 120_000
+const COMPILE_TIMEOUT_MS = 90_000
 
 const SESSION_OPTIONS: InferenceSession.SessionOptions = {
   executionProviders: ['wasm'],
-  graphOptimizationLevel: 'basic',
+  graphOptimizationLevel: 'disabled',
 }
 
 export type KittenPreload = {
@@ -32,17 +31,13 @@ class LoadAbortedError extends Error {
   }
 }
 
-function isMainThread(): boolean {
-  return typeof document !== 'undefined'
-}
-
 function assertNotAborted(shouldAbort?: () => boolean): void {
   if (shouldAbort?.()) {
     throw new LoadAbortedError()
   }
 }
 
-async function loadOrtWeb(useProxy: boolean): Promise<typeof import('onnxruntime-web/wasm')> {
+async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
   const ort = await import('onnxruntime-web/wasm')
   const origin =
     typeof self !== 'undefined' && 'location' in self ? self.location.origin : ''
@@ -53,7 +48,7 @@ async function loadOrtWeb(useProxy: boolean): Promise<typeof import('onnxruntime
   }
   ort.env.wasm.numThreads = 1
   ort.env.wasm.simd = true
-  ort.env.wasm.proxy = useProxy && isMainThread()
+  ort.env.wasm.proxy = false
   ort.env.wasm.initTimeout = ORT_INIT_TIMEOUT_MS
   return ort
 }
@@ -68,7 +63,7 @@ function raceWithTimeout<T>(
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      reject(new Error(`ONNX session creation timed out after ${timeoutMs}ms`))
+      reject(new Error(`Voice engine compilation timed out after ${timeoutMs}ms`))
     }, timeoutMs)
 
     const abortPoll = shouldAbort
@@ -101,20 +96,6 @@ function raceWithTimeout<T>(
   })
 }
 
-async function createInferenceSession(
-  ort: typeof import('onnxruntime-web/wasm'),
-  modelBuffer: ArrayBuffer,
-  timeoutMs: number,
-  shouldAbort?: () => boolean,
-): Promise<InferenceSession> {
-  const modelCopy = modelBuffer.slice(0)
-  return raceWithTimeout(
-    ort.InferenceSession.create(modelCopy, SESSION_OPTIONS),
-    timeoutMs,
-    shouldAbort,
-  )
-}
-
 export class KittenEngine implements TtsEngine {
   private tts: KittenTtsRuntime | null = null
 
@@ -132,44 +113,18 @@ export class KittenEngine implements TtsEngine {
     assertNotAborted(shouldAbort)
     onProgress({ loaded: ESTIMATED_BYTES * 0.4, total: ESTIMATED_BYTES, status: 'downloading' })
 
-    let ort = await loadOrtWeb(true)
+    const ort = await loadOrtWeb()
     assertNotAborted(shouldAbort)
     onProgress({ loaded: ESTIMATED_BYTES * 0.55, total: ESTIMATED_BYTES, status: 'downloading' })
 
     opts?.onCompiling?.()
     onProgress({ loaded: ESTIMATED_BYTES * 0.6, total: ESTIMATED_BYTES, status: 'downloading' })
 
-    let session: InferenceSession
-    let sessionProgress: ReturnType<typeof setInterval> | null = null
-
-    try {
-      sessionProgress = setInterval(() => {
-        if (shouldAbort?.()) return
-        onProgress({ loaded: ESTIMATED_BYTES * 0.72, total: ESTIMATED_BYTES, status: 'downloading' })
-      }, 2000)
-
-      try {
-        session = await createInferenceSession(
-          ort,
-          preload.modelBuffer,
-          PROXY_COMPILE_TIMEOUT_MS,
-          shouldAbort,
-        )
-      } catch (proxyErr) {
-        if (proxyErr instanceof LoadAbortedError) throw proxyErr
-        console.warn('[TTS] Proxy ONNX session failed, retrying without proxy worker:', proxyErr)
-        assertNotAborted(shouldAbort)
-        ort = await loadOrtWeb(false)
-        session = await createInferenceSession(
-          ort,
-          preload.modelBuffer,
-          DIRECT_COMPILE_TIMEOUT_MS,
-          shouldAbort,
-        )
-      }
-    } finally {
-      if (sessionProgress) clearInterval(sessionProgress)
-    }
+    const session = await raceWithTimeout(
+      ort.InferenceSession.create(preload.modelBuffer.slice(0), SESSION_OPTIONS),
+      COMPILE_TIMEOUT_MS,
+      shouldAbort,
+    )
 
     assertNotAborted(shouldAbort)
     onProgress({ loaded: ESTIMATED_BYTES * 0.85, total: ESTIMATED_BYTES, status: 'downloading' })

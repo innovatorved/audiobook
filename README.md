@@ -25,10 +25,14 @@ Open http://localhost:5173, upload a PDF, and press play.
 
 ## Build
 
+Requires **Python 3** (used only at build time). The build script creates a local `.venv`, installs `onnxruntime`, and converts the voice model to ORT format for fast in-browser loading.
+
 ```bash
 bun run build
 bun run preview
 ```
+
+On **Cloudflare Pages**, the same build step runs during deploy; ensure the Pages build image includes Python 3 (default Node images do). If conversion fails, run `node scripts/fetch-kitten-model.mjs` locally and redeploy.
 
 ## Shortcuts
 

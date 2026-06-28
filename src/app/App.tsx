@@ -8,6 +8,7 @@ import { applyTheme } from '@/lib/theme'
 import { useTheme } from '@/hooks/useTheme'
 import { switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { prepareBrowserTts } from '@/lib/tts/browserSpeech'
+import { preloadKittenModelAssets } from '@/lib/tts/kittenDownload'
 
 function AppContent() {
   const theme = useTheme()
@@ -15,11 +16,15 @@ function AppContent() {
   useEffect(() => {
     applyTheme(loadPreferences().theme)
     const prefs = applyPreferencesToStore()
+
+    void prepareBrowserTts()
+
     if (prefs.engine === 'browser') {
-      void prepareBrowserTts()
-    } else {
-      void switchEngine('kitten')
+      return
     }
+
+    preloadKittenModelAssets()
+    void switchEngine('kitten')
   }, [])
 
   return (

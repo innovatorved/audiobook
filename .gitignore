@@ -12,6 +12,7 @@ dist
 dist-ssr
 public/ort
 public/kitten-model
+.venv
 *.local
 
 # Editor directories and files

@@ -9,13 +9,14 @@ import {
 import { getPreferredVoice, resolveVoiceForEngine } from '@/lib/preferences'
 import { syncVoiceWithEngineVoices } from '@/lib/tts/voiceSync'
 import { usePlayerStore, type ModelLoadPhase, type ModelLoadStatus } from '@/stores/playerStore'
+import { toast } from 'sonner'
 
 const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
 const FIRST_STREAM_WINDOW = 1
 const CONTINUE_STREAM_WINDOW = 4
-const ENGINE_BYTES = 43 * 1024 * 1024
-const DOWNLOAD_WATCHDOG_MS = 95_000
-const COMPILE_WATCHDOG_MS = 120_000
+const ENGINE_BYTES = 58 * 1024 * 1024
+const DOWNLOAD_WATCHDOG_MS = 180_000
+const COMPILE_WATCHDOG_MS = 90_000
 const STALE_JOB_HARD_STOP_MS = 200
 
 type ChunkHandler = (chunk: {
@@ -336,6 +337,7 @@ async function resolveKittenPreload(generation: number): Promise<KittenPreload> 
     const totalSize = Object.values(manifest.files).reduce((acc, f) => acc + f.size, 0)
     usePlayerStore.setState({ modelFromCache: true })
     applyProgress(totalSize, totalSize, 'cached', 'downloading', generation)
+    clearLoadWatchdog()
     return cached
   }
 
@@ -357,6 +359,7 @@ async function resolveKittenPreload(generation: number): Promise<KittenPreload> 
     config: result.config,
   }
   void saveCachedKittenModel(manifestHash, preload)
+  clearLoadWatchdog()
   return preload
 }
 
@@ -416,6 +419,7 @@ async function startLoad(preload: KittenPreload, generation: number): Promise<vo
   applyProgress(ENGINE_BYTES, ENGINE_BYTES, 'ready', 'ready', generation)
   syncVoiceWithEngineVoices(kittenEngine.listVoices())
   getStore().setModelReady(true)
+  toast.success('Neural voice ready')
   runWarmup()
 }
 
