@@ -67,11 +67,11 @@ async function fetchFile(
 }
 
 function findModelFile(manifest: KittenManifest): string {
-  const modelFile = Object.keys(manifest.files).find((name) => name.endsWith('.ort'))
-  if (!modelFile) {
-    throw new Error('Manifest missing ORT model file')
-  }
-  return modelFile
+  const ortFile = Object.keys(manifest.files).find((name) => name.endsWith('.ort'))
+  if (ortFile) return ortFile
+  const onnxFile = Object.keys(manifest.files).find((name) => name.endsWith('.onnx'))
+  if (onnxFile) return onnxFile
+  throw new Error('Manifest missing voice model file (.ort or .onnx)')
 }
 
 export async function downloadKittenModel(

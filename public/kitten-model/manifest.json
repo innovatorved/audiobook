@@ -1,0 +1,17 @@
+{
+  "repo": "KittenML/kitten-tts-micro-0.8",
+  "files": {
+    "config.json": {
+      "size": 469,
+      "parts": 1
+    },
+    "voices.npz": {
+      "size": 3278902,
+      "parts": 1
+    },
+    "kitten_tts_micro_v0_8.ort": {
+      "size": 58133512,
+      "parts": 7
+    }
+  }
+}
