@@ -38,7 +38,7 @@ export async function loadCachedKittenModel(
   }
 }
 
-export async function saveCachedKittenModel(
+async function writeCachedKittenModel(
   manifestHash: string,
   preload: KittenPreload,
 ): Promise<void> {
@@ -53,5 +53,19 @@ export async function saveCachedKittenModel(
     })
   } catch (err) {
     console.warn('[TTS] Could not cache voice model locally:', err)
+  }
+}
+
+export function saveCachedKittenModel(
+  manifestHash: string,
+  preload: KittenPreload,
+): void {
+  const run = () => {
+    void writeCachedKittenModel(manifestHash, preload)
+  }
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(run, { timeout: 5000 })
+  } else {
+    setTimeout(run, 0)
   }
 }

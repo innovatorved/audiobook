@@ -3,8 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { savePreferences } from '@/lib/preferences'
 import { formatBytes } from '@/lib/tts/kittenDownload'
-import { prepareBrowserTts } from '@/lib/tts/browserSpeech'
-import { switchEngine, unloadTtsEngine } from '@/lib/tts/ttsWorkerManager'
+import { abortKittenLoad, switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import { cn } from '@/lib/utils'
 
@@ -40,9 +39,8 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
             size="sm"
             variant="outline"
             onClick={() => {
-              unloadTtsEngine()
+              abortKittenLoad()
               savePreferences({ engine: 'browser' })
-              void prepareBrowserTts()
             }}
           >
             <Speech className="size-3.5" />
@@ -58,13 +56,16 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   const isCompiling = modelLoadPhase === 'compiling'
   const hasByteCounts =
     isDownloading && modelTotalBytes > 0 && modelLoadedBytes > 0
-  const showProgress = isModelLoading && !isModelReady
+  const showProgress =
+    isModelLoading && (modelLoadPhase === 'downloading' || modelLoadPhase === 'compiling')
 
   let progressLabel = `Preparing voice… ${pct}%`
   if (isDownloading && hasByteCounts) {
     progressLabel = `Downloading voice model… ${pct}% (${formatBytes(modelLoadedBytes)} / ${formatBytes(modelTotalBytes)})`
   } else if (isCompiling) {
-    progressLabel = 'Starting voice engine… (can take 1–2 min in Chrome)'
+    progressLabel = 'Starting voice engine…'
+  } else if (showProgress) {
+    progressLabel = `Preparing neural voice… ${pct}%`
   }
 
   return (
@@ -76,10 +77,15 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
             <p className="text-sm text-muted-foreground">{progressLabel}</p>
           </div>
           <Progress value={Math.max(pct, 4)} className="mt-2.5 h-1" aria-hidden />
+          {isModelReady && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Browser voice is available while the neural model loads.
+            </p>
+          )}
         </div>
       )}
 
-      {isModelReady && !isModelLoading && (
+      {isModelReady && !showProgress && modelLoadPhase === 'ready' && (
         <p className="text-center text-xs text-muted-foreground">
           <CheckCircle2 className="mr-1 inline size-3.5 text-primary" aria-hidden />
           Voice ready

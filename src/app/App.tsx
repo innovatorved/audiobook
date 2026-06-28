@@ -6,9 +6,10 @@ import { router } from '@/app/routes'
 import { applyPreferencesToStore, loadPreferences } from '@/lib/preferences'
 import { applyTheme } from '@/lib/theme'
 import { useTheme } from '@/hooks/useTheme'
-import { switchEngine } from '@/lib/tts/ttsWorkerManager'
-import { prepareBrowserTts } from '@/lib/tts/browserSpeech'
+import { activateBrowserEngine, warmBrowserVoices } from '@/lib/tts/browserSpeech'
 import { preloadKittenModelAssets } from '@/lib/tts/kittenDownload'
+import { prepareKittenInBackground } from '@/lib/tts/ttsWorkerManager'
+import { usePlayerStore } from '@/stores/playerStore'
 
 function AppContent() {
   const theme = useTheme()
@@ -17,14 +18,23 @@ function AppContent() {
     applyTheme(loadPreferences().theme)
     const prefs = applyPreferencesToStore()
 
-    void prepareBrowserTts()
+    void warmBrowserVoices().then((voices) => {
+      if (prefs.engine === 'browser') {
+        void activateBrowserEngine()
+        return
+      }
 
-    if (prefs.engine === 'browser') {
-      return
-    }
+      if (voices.length > 0) {
+        usePlayerStore.setState({
+          isModelReady: true,
+          engineReady: true,
+          modelStatus: 'ready',
+        })
+      }
 
-    preloadKittenModelAssets()
-    void switchEngine('kitten')
+      preloadKittenModelAssets()
+      prepareKittenInBackground()
+    })
   }, [])
 
   return (

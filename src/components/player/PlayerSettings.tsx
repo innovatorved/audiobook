@@ -15,7 +15,7 @@ import {
   clampPlaybackSpeed,
 } from '@/lib/audio/speed'
 import { rememberVoice, savePreferences } from '@/lib/preferences'
-import { browserSpeech, prepareBrowserTts } from '@/lib/tts/browserSpeech'
+import { browserSpeech, activateBrowserEngine } from '@/lib/tts/browserSpeech'
 import { clearSynthCache, switchEngine, unloadTtsEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import type { TtsEngineType } from '@/lib/types'
@@ -76,7 +76,7 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
     savePreferences({ engine: nextEngine })
     if (nextEngine === 'browser') {
       unloadTtsEngine()
-      void prepareBrowserTts()
+      void activateBrowserEngine()
     } else {
       void switchEngine('kitten')
     }

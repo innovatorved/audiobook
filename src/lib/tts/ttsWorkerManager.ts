@@ -8,6 +8,11 @@ import {
 } from '@/lib/tts/kittenModelCache'
 import { getPreferredVoice, resolveVoiceForEngine } from '@/lib/preferences'
 import { syncVoiceWithEngineVoices } from '@/lib/tts/voiceSync'
+import {
+  activateBrowserEngine,
+  areBrowserVoicesWarmed,
+  browserTtsSupported,
+} from '@/lib/tts/browserSpeech'
 import { usePlayerStore, type ModelLoadPhase, type ModelLoadStatus } from '@/stores/playerStore'
 import { toast } from 'sonner'
 
@@ -178,6 +183,21 @@ function applyError(message: string): void {
   engine = null
   engineModulePromise = null
   getStore().setEngineReady(false)
+
+  const keepPlayback =
+    areBrowserVoicesWarmed() && browserTtsSupported() && getStore().engine !== 'browser'
+  if (keepPlayback) {
+    usePlayerStore.setState({
+      isModelLoading: false,
+      isModelReady: true,
+      engineReady: true,
+      modelStatus: 'error',
+      modelLoadPhase: 'error',
+      modelError: message,
+    })
+    return
+  }
+
   getStore().setModelError(message)
 }
 
@@ -418,6 +438,10 @@ async function startLoad(preload: KittenPreload, generation: number): Promise<vo
   getStore().setEngineReady(true)
   applyProgress(ENGINE_BYTES, ENGINE_BYTES, 'ready', 'ready', generation)
   syncVoiceWithEngineVoices(kittenEngine.listVoices())
+  usePlayerStore.setState({
+    engine: 'kitten',
+    voice: getPreferredVoice('kitten'),
+  })
   getStore().setModelReady(true)
   toast.success('Neural voice ready')
   runWarmup()
@@ -427,7 +451,55 @@ export function getLoadingEngine(): 'kitten' | null {
   return loadInFlight ? 'kitten' : null
 }
 
+export function usesBrowserPlayback(): boolean {
+  const store = getStore()
+  if (store.engine === 'browser') return true
+  return !isEngineReady() && areBrowserVoicesWarmed() && browserTtsSupported()
+}
+
+export function isPlaybackReady(): boolean {
+  const store = getStore()
+  if (usesBrowserPlayback()) {
+    return areBrowserVoicesWarmed() && browserTtsSupported() && store.isModelReady
+  }
+  return isEngineReady()
+}
+
+export function abortKittenLoad(): void {
+  loadGeneration++
+  clearLoadWatchdog()
+  loadInFlight = false
+  loading = false
+  loaded = false
+  loadPromise = null
+  kittenPreload = null
+  engine = null
+  engineModulePromise = null
+  warmupSent = false
+  streamEpoch++
+  prefetchEpoch++
+  usePlayerStore.setState({
+    isModelLoading: false,
+    modelLoadPhase: 'idle',
+    modelError: null,
+    modelProgress: 0,
+    modelLoadedBytes: 0,
+    modelTotalBytes: 0,
+    modelStatus: 'idle',
+  })
+  void activateBrowserEngine()
+}
+
 let loadPromise: Promise<void> | null = null
+
+export function prepareKittenInBackground(): void {
+  if (loaded && engine) return
+  if (loadPromise) return
+  loadPromise = prepareKittenInBackgroundWork()
+  void loadPromise.finally(() => {
+    loadPromise = null
+  })
+}
 
 export async function switchEngine(_engineType: 'kitten' = 'kitten'): Promise<void> {
   if (loaded && engine) {
@@ -449,6 +521,70 @@ export async function switchEngine(_engineType: 'kitten' = 'kitten'): Promise<vo
     await loadPromise
   } finally {
     loadPromise = null
+  }
+}
+
+async function prepareKittenInBackgroundWork(): Promise<void> {
+  if (loadInFlight && loaded) return
+
+  loading = true
+  loadInFlight = true
+
+  const token = ++switchToken
+  const generation = ++loadGeneration
+
+  usePlayerStore.setState({
+    isModelLoading: true,
+    modelError: null,
+    modelFromCache: false,
+    modelProgress: 0,
+    modelLoadPhase: 'downloading',
+  })
+
+  if (areBrowserVoicesWarmed() && browserTtsSupported()) {
+    usePlayerStore.setState({
+      isModelReady: true,
+      engineReady: true,
+      modelStatus: 'ready',
+    })
+  }
+
+  applyProgress(0, ENGINE_BYTES, 'downloading', 'downloading', generation)
+
+  if (loaded && engine) {
+    loadInFlight = false
+    loading = false
+    syncVoiceWithEngineVoices(engine.listVoices())
+    getStore().setModelReady(true)
+    return
+  }
+
+  try {
+    if (!kittenPreload || !kittenBuffersUsable(kittenPreload)) {
+      kittenPreload = await resolveKittenPreload(generation)
+    } else {
+      usePlayerStore.setState({ modelFromCache: true })
+      applyProgress(ENGINE_BYTES, ENGINE_BYTES, 'cached', 'downloading', generation)
+    }
+
+    if (token !== switchToken || generation !== loadGeneration) {
+    loading = false
+    loadInFlight = false
+    return
+    }
+
+    await startLoad(kittenPreload, generation)
+  } catch (err) {
+    if (token !== switchToken || generation !== loadGeneration) {
+    loading = false
+    loadInFlight = false
+    return
+    }
+    loading = false
+    const message = err instanceof Error ? err.message : 'Failed to download voice model'
+    if (message !== 'Voice engine load aborted') {
+      applyError(message)
+    }
   }
 }
 

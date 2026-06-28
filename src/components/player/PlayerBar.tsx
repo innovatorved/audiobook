@@ -8,8 +8,7 @@ import {
 import { Scrubber } from '@/components/player/Scrubber'
 import { ProgressBar } from '@/components/ui/ProgressBar'
 import { formatBytes } from '@/lib/tts/kittenDownload'
-import { browserTtsSupported } from '@/lib/tts/browserSpeech'
-import { isEngineReady } from '@/lib/tts/ttsWorkerManager'
+import { isPlaybackReady } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import { cn } from '@/lib/utils'
 
@@ -33,14 +32,15 @@ export function PlayerBar({
     modelProgress,
     modelLoadedBytes,
     modelTotalBytes,
+    modelLoadPhase,
     currentSentenceIndex,
     totalSentences,
     activePageNum,
-    engine,
   } = usePlayerStore()
-  const canPlay = engine === 'browser'
-    ? isModelReady && browserTtsSupported()
-    : isModelReady && !isModelLoading && isEngineReady()
+  const canPlay = isPlaybackReady()
+  const showVoiceProgress =
+    isModelLoading &&
+    (modelLoadPhase === 'downloading' || modelLoadPhase === 'compiling')
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-6">
@@ -49,7 +49,7 @@ export function PlayerBar({
         aria-label="Audio player"
         className="surface-float pointer-events-auto w-full max-w-2xl overflow-hidden"
       >
-        {isModelLoading && !isModelReady && (
+        {showVoiceProgress && (
           <div className="px-4 py-2">
             <ProgressBar
               value={modelProgress}
@@ -94,7 +94,7 @@ export function PlayerBar({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {!isModelReady
+              {!canPlay
                 ? 'Wait for voice model to load'
                 : isPlaying
                   ? 'Pause (Space)'

@@ -48,7 +48,7 @@ async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
   }
   ort.env.wasm.numThreads = 1
   ort.env.wasm.simd = true
-  ort.env.wasm.proxy = false
+  ort.env.wasm.proxy = true
   ort.env.wasm.initTimeout = ORT_INIT_TIMEOUT_MS
   return ort
 }
@@ -121,7 +121,7 @@ export class KittenEngine implements TtsEngine {
     onProgress({ loaded: ESTIMATED_BYTES * 0.6, total: ESTIMATED_BYTES, status: 'downloading' })
 
     const session = await raceWithTimeout(
-      ort.InferenceSession.create(preload.modelBuffer.slice(0), SESSION_OPTIONS),
+      ort.InferenceSession.create(preload.modelBuffer, SESSION_OPTIONS),
       COMPILE_TIMEOUT_MS,
       shouldAbort,
     )

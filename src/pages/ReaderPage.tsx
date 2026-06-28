@@ -29,8 +29,8 @@ import { useReaderStore } from '@/stores/readerStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useTtsWorker } from '@/hooks/useTtsWorker'
 import { findClickTargetAtPoint } from '@/lib/pdf/findWordAtPoint'
-import { clearSynthCache, isEngineReady } from '@/lib/tts/ttsWorkerManager'
-import { browserSpeech, prepareBrowserTts } from '@/lib/tts/browserSpeech'
+import { clearSynthCache, isEngineReady, isPlaybackReady, usesBrowserPlayback } from '@/lib/tts/ttsWorkerManager'
+import { activateBrowserEngine, browserSpeech, getWarmedBrowserVoices, resolveBrowserVoiceId } from '@/lib/tts/browserSpeech'
 import { useOcrPrefetch } from '@/hooks/useOcrPrefetch'
 import { useReadingProgress } from '@/hooks/useReadingProgress'
 import type { SentenceInfo, WordPosition } from '@/lib/types'
@@ -424,17 +424,23 @@ export function ReaderPage() {
   const startBrowserSpeech = useCallback(
     async (fromIndex: number, fromWordIndex?: number) => {
       if (sentenceTexts.length === 0) return
-      await prepareBrowserTts()
-      if (usePlayerStore.getState().engine !== 'browser') return
+      if (!usesBrowserPlayback()) {
+        await activateBrowserEngine()
+      }
+      if (!usesBrowserPlayback()) return
 
       const clamped = Math.max(0, Math.min(fromIndex, sentenceTexts.length - 1))
+      const browserVoice = resolveBrowserVoiceId(
+        usePlayerStore.getState().voice,
+        getWarmedBrowserVoices(),
+      )
       browserSpeech.play({
         sentenceTexts,
         sentences,
         words,
         startIndex: clamped,
         startWordIndex: fromWordIndex,
-        voice: usePlayerStore.getState().voice,
+        voice: browserVoice,
         speed: usePlayerStore.getState().speed,
         volume: usePlayerStore.getState().volume,
         onSentence: (sentenceIndex, wordIndex, pageNum) => {
@@ -534,7 +540,7 @@ export function ReaderPage() {
     playbackGenRef.current++
     stopStream()
     streamingRef.current = false
-    if (usePlayerStore.getState().engine === 'browser') {
+    if (usePlayerStore.getState().engine === 'browser' || usesBrowserPlayback()) {
       browserSpeech.pause()
     } else {
       await audioScheduler.pause()
@@ -617,22 +623,23 @@ export function ReaderPage() {
         }
       }
 
-      const engineReady = engine === 'browser'
-        ? usePlayerStore.getState().engineReady && usePlayerStore.getState().isModelReady
-        : isEngineReady()
+      const engineReady = isPlaybackReady()
       if (!autoPlay || !engineReady) {
         if (autoPlay) {
           pendingClickRef.current = { index: clamped, wordIndex: clickedWord?.globalIndex }
-          if (engine === 'browser') {
-            void prepareBrowserTts()
+          if (usesBrowserPlayback()) {
+            void activateBrowserEngine()
           } else {
             ensureEngine()
           }
           if (isUserClick) {
-            toast.info(engine === 'browser' ? 'Loading browser voices…' : 'Loading voice model…', {
-              id: 'tts-loading',
-              description: 'Playback will start as soon as the voice is ready.',
-            })
+            toast.info(
+              usesBrowserPlayback() ? 'Loading browser voices…' : 'Loading voice model…',
+              {
+                id: 'tts-loading',
+                description: 'Playback will start as soon as the voice is ready.',
+              },
+            )
           }
         } else {
           await audioScheduler.pause()
@@ -655,7 +662,7 @@ export function ReaderPage() {
       firstChunkLoggedRef.current = false
       const fromWord = clickedWord?.globalIndex
 
-      if (engine === 'browser') {
+      if (usesBrowserPlayback()) {
         stopStream()
         audioScheduler.clear()
         highlightSync.clear()
@@ -678,7 +685,7 @@ export function ReaderPage() {
           }
         }
       }
-      if (engine !== 'browser') {
+      if (!usesBrowserPlayback()) {
         startHighlightSync()
       }
       void persist()
@@ -704,9 +711,7 @@ export function ReaderPage() {
 
   useEffect(() => {
     const pending = pendingClickRef.current
-    const ready = engine === 'browser'
-      ? usePlayerStore.getState().isModelReady && usePlayerStore.getState().engineReady
-      : isEngineReady()
+    const ready = isPlaybackReady()
     if (!pending || !ready) return
     pendingClickRef.current = null
     toast.dismiss('tts-loading')
@@ -737,22 +742,23 @@ export function ReaderPage() {
   ])
 
   const handlePlayPause = useCallback(async () => {
-    const ready = engine === 'browser'
-      ? usePlayerStore.getState().isModelReady && usePlayerStore.getState().engineReady
-      : isModelReady && isEngineReady()
+    const ready = isPlaybackReady()
     if (!ready) {
       if (!isModelLoading) {
-        if (engine === 'browser') {
-          void prepareBrowserTts()
+        if (usesBrowserPlayback()) {
+          void activateBrowserEngine()
         } else {
           ensureEngine()
         }
       }
-      toast.info(engine === 'browser' ? 'Loading browser voices…' : 'Loading voice model…', {
-        description: engine === 'browser'
-          ? 'Browser voices are loading from your system.'
-          : 'Visit Home first to preload, or wait for the model to finish downloading.',
-      })
+      toast.info(
+        usesBrowserPlayback() ? 'Loading browser voices…' : 'Loading voice model…',
+        {
+          description: usesBrowserPlayback()
+            ? 'Browser voices are loading from your system.'
+            : 'Visit Home first to preload, or wait for the model to finish downloading.',
+        },
+      )
       return
     }
 
@@ -767,7 +773,7 @@ export function ReaderPage() {
       playbackGenRef.current++
       stopStream()
       streamingRef.current = false
-      if (engine === 'browser') {
+      if (usesBrowserPlayback()) {
         browserSpeech.pause()
       } else {
         await audioScheduler.pause()
@@ -963,7 +969,7 @@ export function ReaderPage() {
       clearSynthCache()
       setSpeed(safeSpeed)
       savePreferences({ speed: safeSpeed })
-      if (engine === 'browser') {
+      if (usesBrowserPlayback()) {
         if (isPlaying) {
           const resumeIndex = getResumeSentenceIndex()
           const sentence = sentences[resumeIndex]

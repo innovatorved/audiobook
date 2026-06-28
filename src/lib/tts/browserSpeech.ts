@@ -18,9 +18,18 @@ type BrowserSpeechOptions = {
 }
 
 let voicesReadyPromise: Promise<SpeechSynthesisVoice[]> | null = null
+let browserVoicesCached: VoiceInfo[] = []
 
 export function browserTtsSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window
+}
+
+export function areBrowserVoicesWarmed(): boolean {
+  return browserVoicesCached.length > 0
+}
+
+export function getWarmedBrowserVoices(): VoiceInfo[] {
+  return browserVoicesCached
 }
 
 function mapVoice(voice: SpeechSynthesisVoice): VoiceInfo {
@@ -37,6 +46,7 @@ function englishVoices(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice[] {
 
 export function listBrowserVoices(): VoiceInfo[] {
   if (!browserTtsSupported()) return []
+  if (browserVoicesCached.length > 0) return browserVoicesCached
   const voices = englishVoices(window.speechSynthesis.getVoices())
   return voices.map(mapVoice)
 }
@@ -58,13 +68,22 @@ export async function loadBrowserVoices(): Promise<VoiceInfo[]> {
   return englishVoices(await voicesReadyPromise).map(mapVoice)
 }
 
-export async function prepareBrowserTts(): Promise<void> {
+/** Load browser voice list without changing engine or ready state. */
+export async function warmBrowserVoices(): Promise<VoiceInfo[]> {
+  if (!browserTtsSupported()) return []
+  const voices = await loadBrowserVoices()
+  browserVoicesCached = voices
+  return voices
+}
+
+/** Switch playback to browser TTS and mark the engine ready. */
+export async function activateBrowserEngine(): Promise<void> {
   if (!browserTtsSupported()) {
     usePlayerStore.getState().setModelError('Browser text-to-speech is not available in this browser.')
     return
   }
 
-  const voices = await loadBrowserVoices()
+  const voices = await warmBrowserVoices()
   usePlayerStore.setState({
     engine: 'browser',
     voices,
@@ -74,10 +93,16 @@ export async function prepareBrowserTts(): Promise<void> {
     engineReady: true,
     modelProgress: 100,
     modelStatus: 'ready',
+    modelLoadPhase: 'ready',
     modelError: null,
     modelLoadedBytes: 0,
     modelTotalBytes: 0,
   })
+}
+
+/** @deprecated Use activateBrowserEngine() */
+export async function prepareBrowserTts(): Promise<void> {
+  await activateBrowserEngine()
 }
 
 export function resolveBrowserVoiceId(current: string | undefined, voices: VoiceInfo[]): string {

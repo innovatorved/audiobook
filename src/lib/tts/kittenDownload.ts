@@ -56,12 +56,17 @@ async function fetchFile(
   if (urls.length === 1) {
     return fetchBuffer(urls[0], onBytes)
   }
-  const buffers = await Promise.all(urls.map((url) => fetchBuffer(url, onBytes)))
+  const buffers: ArrayBuffer[] = []
+  for (const url of urls) {
+    buffers.push(await fetchBuffer(url, onBytes))
+    await scheduler.yield()
+  }
   const combined = new Uint8Array(meta.size)
   let offset = 0
   for (const buf of buffers) {
     combined.set(new Uint8Array(buf), offset)
     offset += buf.byteLength
+    await scheduler.yield()
   }
   return combined.buffer
 }
@@ -127,20 +132,13 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Preload manifest + model parts so download starts before app JS boots. */
+/** Preload manifest + first model parts so download starts before app JS boots. */
 export function preloadKittenModelAssets(): void {
   if (typeof document === 'undefined') return
   const hints = [
     '/kitten-model/manifest.json',
-    '/kitten-model/config.json',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part0',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part1',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part2',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part3',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part4',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part5',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part6',
-    '/kitten-model/voices.npz',
   ]
   for (const href of hints) {
     if (document.querySelector(`link[rel="preload"][href="${href}"]`)) continue
