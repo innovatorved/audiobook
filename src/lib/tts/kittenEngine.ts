@@ -1,8 +1,11 @@
 import type { ProgressCallback, VoiceInfo } from '@/lib/types'
 import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engine'
+import type { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
+import { LoadAbortedError, loadKittenOnMainThread } from '@/lib/tts/kittenMainThread'
+import { useMainThreadOrt } from '@/lib/tts/kittenPlatform'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
-import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
 import KittenWorker from '../../workers/kittenOrt.worker.ts?worker'
+import InlineKittenWorker from '../../workers/kittenOrt.worker.ts?worker&inline'
 
 const LOAD_TIMEOUT_MS = 130_000
 
@@ -16,13 +19,6 @@ export type KittenLoadOptions = {
   shouldAbort?: () => boolean
   onCompiling?: () => void
   onStage?: (stage: CompileStage) => void
-}
-
-class LoadAbortedError extends Error {
-  constructor() {
-    super('Voice engine load aborted')
-    this.name = 'LoadAbortedError'
-  }
 }
 
 type WorkerProgressMessage = {
@@ -94,6 +90,8 @@ function formatWorkerError(event: ErrorEvent): string {
 }
 
 export class KittenEngine implements TtsEngine {
+  private readonly mainThreadMode = useMainThreadOrt()
+  private tts: KittenTtsRuntime | null = null
   private worker: Worker | null = null
   private workerReady: Promise<Worker> | null = null
   private voices: string[] = []
@@ -119,6 +117,7 @@ export class KittenEngine implements TtsEngine {
       this.loadWaiters = null
     }
     this.loadPromise = null
+    this.tts = null
     if (this.worker) {
       this.worker.terminate()
       this.worker = null
@@ -143,16 +142,16 @@ export class KittenEngine implements TtsEngine {
     }
   }
 
-  private async ensureWorker(): Promise<Worker> {
+  private async ensureWorker(useInline = false): Promise<Worker> {
     if (this.worker) return this.worker
     if (!this.workerReady) {
-      this.workerReady = this.createWorker()
+      this.workerReady = this.createWorker(useInline)
     }
     return this.workerReady
   }
 
-  private async createWorker(): Promise<Worker> {
-    const worker = new KittenWorker()
+  private async createWorker(useInline = false): Promise<Worker> {
+    const worker = useInline ? new InlineKittenWorker() : new KittenWorker()
     this.attachWorkerHandlers(worker)
     this.worker = worker
     return worker
@@ -238,13 +237,34 @@ export class KittenEngine implements TtsEngine {
     }
   }
 
-  private async loadOnce(
+  private async loadOnceMainThread(
     onProgress: ProgressCallback,
     preload: KittenPreload,
     opts?: KittenLoadOptions,
   ): Promise<void> {
-    const worker = await this.ensureWorker()
-    const ortWasmBuffer = await getOrtWasmBinary()
+    this.tts = await loadKittenOnMainThread(
+      preload.modelBuffer,
+      preload.voicesBuffer,
+      preload.config,
+      {
+        onProgress: (loaded, total, status) => {
+          onProgress({ loaded, total, status })
+        },
+        onCompiling: opts?.onCompiling,
+        onStage: opts?.onStage,
+        shouldAbort: opts?.shouldAbort,
+      },
+    )
+    this.voices = this.tts.list_voices()
+  }
+
+  private async loadOnceWorker(
+    onProgress: ProgressCallback,
+    preload: KittenPreload,
+    opts?: KittenLoadOptions,
+    useInlineWorker = false,
+  ): Promise<void> {
+    const worker = await this.ensureWorker(useInlineWorker)
 
     return new Promise((resolve, reject) => {
       let settled = false
@@ -290,11 +310,23 @@ export class KittenEngine implements TtsEngine {
           voicesBuffer: preload.voicesBuffer,
           config: preload.config,
           wasmBase: wasmBaseUrl(),
-          ortWasmBuffer,
         },
-        [preload.modelBuffer, preload.voicesBuffer, ortWasmBuffer],
+        [preload.modelBuffer, preload.voicesBuffer],
       )
     })
+  }
+
+  private async loadOnce(
+    onProgress: ProgressCallback,
+    preload: KittenPreload,
+    opts?: KittenLoadOptions,
+    useInlineWorker = false,
+  ): Promise<void> {
+    if (this.mainThreadMode) {
+      await this.loadOnceMainThread(onProgress, preload, opts)
+      return
+    }
+    await this.loadOnceWorker(onProgress, preload, opts, useInlineWorker)
   }
 
   async load(
@@ -327,6 +359,7 @@ export class KittenEngine implements TtsEngine {
               config: preload.config,
             },
             opts,
+            attempt > 0 && !this.mainThreadMode,
           )
           return
         } catch (err) {
@@ -348,6 +381,9 @@ export class KittenEngine implements TtsEngine {
   }
 
   listVoices(): VoiceInfo[] {
+    if (this.tts) {
+      return this.tts.list_voices().map((id) => ({ id, label: id }))
+    }
     return this.voices.map((id) => ({ id, label: id }))
   }
 
@@ -373,8 +409,26 @@ export class KittenEngine implements TtsEngine {
     chunks: string[],
     opts: TtsStreamOptions,
   ): AsyncIterable<TtsStreamChunk> {
-    if (this.voices.length === 0) {
+    if (this.voices.length === 0 && !this.tts) {
       throw new Error('Kitten TTS not loaded')
+    }
+
+    if (this.tts) {
+      for (const text of chunks) {
+        if (opts.shouldAbort?.()) return
+        const audio = await this.tts.generate(text, {
+          voice: opts.voice,
+          speed: opts.speed,
+          shouldAbort: opts.shouldAbort,
+        })
+        if (opts.shouldAbort?.()) return
+        yield {
+          text,
+          pcm: audio.data,
+          sampleRate: audio.sampling_rate,
+        }
+      }
+      return
     }
 
     for (const text of chunks) {
