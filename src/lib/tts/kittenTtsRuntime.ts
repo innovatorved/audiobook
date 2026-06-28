@@ -3,7 +3,7 @@
  */
 import { TextCleaner, basic_english_tokenize } from 'kitten-tts-js/src/text-cleaner.js'
 import { TextPreprocessor } from 'kitten-tts-js/src/preprocess.js'
-import { phonemize } from 'kitten-tts-js/src/phonemizer.js'
+import { phonemize } from '@/lib/tts/phonemizerLazy'
 import type * as OrtNamespace from 'onnxruntime-web/wasm'
 
 const SAMPLE_RATE = 24000

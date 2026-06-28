@@ -20,11 +20,14 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   } = usePlayerStore()
 
   if (modelStatus === 'error' && modelError) {
+    const engineStartFailed = modelProgress >= 50
     return (
       <div className={cn('rounded-2xl bg-destructive/8 px-4 py-3 sm:px-5', className)}>
         <div className="mb-1.5 flex items-center gap-2">
           <AlertCircle className="size-4 text-destructive" aria-hidden />
-          <p className="text-sm font-medium text-destructive">Voice model download failed</p>
+          <p className="text-sm font-medium text-destructive">
+            {engineStartFailed ? 'Voice engine failed to start' : 'Voice model download failed'}
+          </p>
         </div>
         <p className="mb-3 text-sm text-muted-foreground">{modelError}</p>
         <div className="flex flex-wrap gap-2">

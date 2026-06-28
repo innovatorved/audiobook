@@ -11,6 +11,12 @@ export type KittenPreload = {
   config: Record<string, unknown>
 }
 
+const ORT_INIT_TIMEOUT_MS = 90_000
+
+function isMainThread(): boolean {
+  return typeof document !== 'undefined'
+}
+
 async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
   const ort = await import('onnxruntime-web/wasm')
   const origin =
@@ -22,8 +28,9 @@ async function loadOrtWeb(): Promise<typeof import('onnxruntime-web/wasm')> {
   }
   ort.env.wasm.numThreads = 1
   ort.env.wasm.simd = true
-  ort.env.wasm.proxy = false
-  ort.env.wasm.initTimeout = 30_000
+  // Proxy mode requires document (main thread) — ORT runs in its own dedicated worker.
+  ort.env.wasm.proxy = isMainThread()
+  ort.env.wasm.initTimeout = ORT_INIT_TIMEOUT_MS
   return ort
 }
 
@@ -37,12 +44,21 @@ export class KittenEngine implements TtsEngine {
 
     onProgress({ loaded: ESTIMATED_BYTES * 0.4, total: ESTIMATED_BYTES, status: 'downloading' })
     const ort = await loadOrtWeb()
-    onProgress({ loaded: ESTIMATED_BYTES * 0.6, total: ESTIMATED_BYTES, status: 'downloading' })
+    onProgress({ loaded: ESTIMATED_BYTES * 0.55, total: ESTIMATED_BYTES, status: 'downloading' })
 
-    const session = await ort.InferenceSession.create(preload.modelBuffer, {
+    const sessionPromise = ort.InferenceSession.create(preload.modelBuffer, {
       executionProviders: ['wasm'],
     })
-    onProgress({ loaded: ESTIMATED_BYTES * 0.9, total: ESTIMATED_BYTES, status: 'downloading' })
+    const sessionProgress = setInterval(() => {
+      onProgress({ loaded: ESTIMATED_BYTES * 0.72, total: ESTIMATED_BYTES, status: 'downloading' })
+    }, 2000)
+    let session: Awaited<typeof sessionPromise>
+    try {
+      session = await sessionPromise
+    } finally {
+      clearInterval(sessionProgress)
+    }
+    onProgress({ loaded: ESTIMATED_BYTES * 0.85, total: ESTIMATED_BYTES, status: 'downloading' })
 
     const voices = await loadNpz(preload.voicesBuffer)
     this.tts = new KittenTtsRuntime(session, voices, preload.config, ort)

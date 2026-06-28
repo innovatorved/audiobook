@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "sync:ort": "node scripts/sync-ort-wasm.mjs",
-    "dev": "bun run sync:ort && bunx --bun vite",
+    "dev": "bun run sync:ort && node scripts/fetch-kitten-model.mjs && bunx --bun vite",
     "build": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && node scripts/production-build.mjs",
     "lint": "eslint .",
     "preview": "bunx --bun vite preview"

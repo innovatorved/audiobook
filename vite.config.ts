@@ -54,10 +54,41 @@ export default defineConfig({
   worker: { format: 'es' },
   build: {
     target: 'esnext',
-    chunkSizeWarningLimit: 1200,
+    // phonemizer (eSpeak WASM) lazy chunk is ~1.3 MiB — loaded only at synthesis time.
+    chunkSizeWarningLimit: 1400,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/onnxruntime-web') || id.includes('node_modules/onnxruntime-common')) {
+            return 'onnx'
+          }
+          if (id.includes('node_modules/phonemizer')) {
+            return 'phonemizer'
+          }
+          if (id.includes('kitten-tts-js')) {
+            return 'kitten-tts-js'
+          }
+          if (id.includes('/src/lib/tts/kitten') || id.includes('/src/lib/tts/npzLoader')) {
+            return 'kitten-engine'
+          }
+          if (id.includes('pdfjs-dist')) {
+            return 'pdfjs'
+          }
+          if (id.includes('tesseract.js')) {
+            return 'ocr'
+          }
+        },
+      },
+    },
   },
   server: {
     host: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
+  },
+  preview: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'credentialless',

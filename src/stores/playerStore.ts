@@ -85,14 +85,14 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     })),
   setEngineReady: (ready) => set({ engineReady: ready }),
   setModelError: (message) =>
-    set({
+    set((state) => ({
       isModelLoading: false,
       isModelReady: false,
       engineReady: false,
-      modelProgress: 0,
       modelStatus: 'error',
       modelError: message,
-    }),
+      modelProgress: state.modelProgress,
+    })),
   setSpeed: (speed) => set({ speed: clampPlaybackSpeed(speed) }),
   setVolume: (volume) => set({ volume }),
   setVoice: (voice) => set({ voice }),

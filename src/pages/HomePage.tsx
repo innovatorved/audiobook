@@ -5,7 +5,6 @@ import { ModelDownloadBanner } from '@/components/tts/ModelDownloadBanner'
 import { DocumentRow } from '@/components/library/DocumentRow'
 import { loadRecentDocumentsWithProgress, type DocumentWithProgress } from '@/lib/documents'
 import { applyPreferencesToStore } from '@/lib/preferences'
-import { switchEngine } from '@/lib/tts/ttsWorkerManager'
 
 export function HomePage() {
   const [docs, setDocs] = useState<DocumentWithProgress[]>([])
@@ -18,7 +17,6 @@ export function HomePage() {
 
   useEffect(() => {
     applyPreferencesToStore()
-    void switchEngine('kitten')
     refreshDocs()
   }, [refreshDocs])
 
