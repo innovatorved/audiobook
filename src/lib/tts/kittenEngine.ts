@@ -1,6 +1,7 @@
 import type { ProgressCallback, VoiceInfo } from '@/lib/types'
 import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engine'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
+import KittenWorker from '../../workers/kittenOrt.worker.ts?worker&inline'
 
 const LOAD_TIMEOUT_MS = 130_000
 
@@ -93,6 +94,7 @@ function formatWorkerError(event: ErrorEvent): string {
 
 export class KittenEngine implements TtsEngine {
   private worker: Worker | null = null
+  private workerReady: Promise<Worker> | null = null
   private voices: string[] = []
   private nextRequestId = 1
   private loadPromise: Promise<void> | null = null
@@ -120,13 +122,11 @@ export class KittenEngine implements TtsEngine {
       this.worker.terminate()
       this.worker = null
     }
+    this.workerReady = null
     this.voices = []
   }
 
-  private spawnWorker(): Worker {
-    const worker = new Worker(new URL('../../workers/kittenOrt.worker.ts', import.meta.url), {
-      type: 'module',
-    })
+  private attachWorkerHandlers(worker: Worker): void {
     worker.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
       this.handleWorkerMessage(event.data)
     }
@@ -140,14 +140,22 @@ export class KittenEngine implements TtsEngine {
       this.failLoad(new Error(message))
       this.failAllGenerates(new Error(message))
     }
-    return worker
   }
 
-  private getWorker(): Worker {
-    if (!this.worker) {
-      this.worker = this.spawnWorker()
+  private async ensureWorker(): Promise<Worker> {
+    if (this.worker) return this.worker
+    if (!this.workerReady) {
+      this.workerReady = this.createWorkerFromBlob()
     }
-    return this.worker
+    return this.workerReady
+  }
+
+  /** Inline blob worker avoids COEP duplicate-header blocking on CF Pages. */
+  private async createWorkerFromBlob(): Promise<Worker> {
+    const worker = new KittenWorker()
+    this.attachWorkerHandlers(worker)
+    this.worker = worker
+    return worker
   }
 
   private failLoad(err: Error): void {
@@ -235,8 +243,9 @@ export class KittenEngine implements TtsEngine {
     preload: KittenPreload,
     opts?: KittenLoadOptions,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const worker = this.getWorker()
+    return this.ensureWorker().then(
+      (worker) =>
+        new Promise((resolve, reject) => {
       let settled = false
 
       const finish = (fn: () => void) => {
@@ -283,7 +292,8 @@ export class KittenEngine implements TtsEngine {
         },
         [preload.modelBuffer, preload.voicesBuffer],
       )
-    })
+        }),
+    )
   }
 
   async load(
@@ -344,7 +354,11 @@ export class KittenEngine implements TtsEngine {
     return new Promise((resolve, reject) => {
       const id = this.nextRequestId++
       this.pendingGenerates.set(id, { resolve, reject })
-      this.getWorker().postMessage({
+      if (!this.worker) {
+        reject(new Error('Kitten TTS not loaded'))
+        return
+      }
+      this.worker.postMessage({
         type: 'generate',
         id,
         text,
