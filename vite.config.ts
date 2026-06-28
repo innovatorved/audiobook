@@ -51,7 +51,14 @@ export default defineConfig({
     include: ['fflate', 'onnxruntime-web/wasm'],
     exclude: ['kitten-tts-js'],
   },
-  worker: { format: 'es' },
+  worker: {
+    format: 'es',
+    rollupOptions: {
+      output: {
+        codeSplitting: false,
+      },
+    },
+  },
   build: {
     target: 'esnext',
     // phonemizer (eSpeak WASM) lazy chunk is ~1.3 MiB — loaded only at synthesis time.

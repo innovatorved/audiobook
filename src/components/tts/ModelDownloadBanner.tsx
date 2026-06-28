@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { savePreferences } from '@/lib/preferences'
 import { formatBytes } from '@/lib/tts/kittenDownload'
+import { COMPILE_STAGE_LABELS } from '@/lib/tts/kittenTypes'
 import { abortKittenLoad, switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import { cn } from '@/lib/utils'
@@ -16,12 +17,15 @@ function useCompileElapsed(active: boolean): number {
       setSeconds(0)
       return
     }
-    const start = Date.now()
+    const start = performance.now()
     setSeconds(0)
-    const id = window.setInterval(() => {
-      setSeconds(Math.floor((Date.now() - start) / 1000))
-    }, 1000)
-    return () => window.clearInterval(id)
+    let frameId = 0
+    const tick = () => {
+      setSeconds(Math.floor((performance.now() - start) / 1000))
+      frameId = requestAnimationFrame(tick)
+    }
+    frameId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frameId)
   }, [active])
 
   return seconds
@@ -36,6 +40,7 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
     modelTotalBytes,
     modelStatus,
     modelLoadPhase,
+    modelCompileStage,
     modelError,
   } = usePlayerStore()
 
@@ -104,11 +109,17 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   const showProgress =
     isModelLoading && (modelLoadPhase === 'downloading' || modelLoadPhase === 'compiling')
 
+  const stageLabel =
+    modelCompileStage && modelCompileStage in COMPILE_STAGE_LABELS
+      ? COMPILE_STAGE_LABELS[modelCompileStage]
+      : null
+
   let progressLabel = `Preparing voice… ${pct}%`
   if (isDownloading && hasByteCounts) {
     progressLabel = `Downloading voice model… ${pct}% (${formatBytes(modelLoadedBytes)} / ${formatBytes(modelTotalBytes)})`
   } else if (isCompiling) {
-    progressLabel = `Starting voice engine… (${compileSeconds}s)`
+    const detail = stageLabel ?? 'Starting voice engine'
+    progressLabel = `${detail} (${compileSeconds}s)`
   } else if (showProgress) {
     progressLabel = `Preparing neural voice… ${pct}%`
   }

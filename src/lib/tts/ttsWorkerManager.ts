@@ -1,5 +1,6 @@
 import { downloadKittenModel } from '@/lib/tts/kittenDownload'
 import type { KittenPreload } from '@/lib/tts/kittenEngine'
+import { preloadOrtWasm } from '@/lib/tts/ortPreload'
 import {
   fetchKittenManifest,
   hashKittenManifest,
@@ -352,6 +353,7 @@ async function resolveKittenPreload(generation: number): Promise<KittenPreload> 
     generation,
   )
 
+  const ortWarm = preloadOrtWasm()
   const manifest = await fetchKittenManifest()
   if (generation !== loadGeneration) {
     throw new Error('Voice engine load aborted')
@@ -360,6 +362,7 @@ async function resolveKittenPreload(generation: number): Promise<KittenPreload> 
   const manifestHash = await hashKittenManifest(manifest)
   const cached = await loadCachedKittenModel(manifestHash)
   if (cached && generation === loadGeneration) {
+    await ortWarm
     const totalSize = Object.values(manifest.files).reduce((acc, f) => acc + f.size, 0)
     usePlayerStore.setState({ modelFromCache: true })
     applyProgress(totalSize, totalSize, 'cached', 'downloading', generation)
@@ -379,6 +382,8 @@ async function resolveKittenPreload(generation: number): Promise<KittenPreload> 
     throw new Error('Voice engine load aborted')
   }
 
+  await ortWarm
+
   const preload: KittenPreload = {
     modelBuffer: result.modelBuffer,
     voicesBuffer: result.voicesBuffer,
@@ -394,13 +399,6 @@ function kittenBuffersUsable(preload: KittenPreload): boolean {
 }
 
 async function startLoad(preload: KittenPreload, generation: number): Promise<void> {
-  getStore().setModelLoadPhase('compiling')
-  scheduleLoadWatchdog(
-    COMPILE_WATCHDOG_MS,
-    'Voice engine preparation timed out. Please retry.',
-    generation,
-  )
-
   const kittenEngine = await getEngine()
   if (generation !== loadGeneration) return
 
@@ -426,6 +424,10 @@ async function startLoad(preload: KittenPreload, generation: number): Promise<vo
             'Voice engine preparation timed out. Please retry.',
             generation,
           )
+        },
+        onStage: (stage) => {
+          if (generation !== loadGeneration) return
+          getStore().setModelCompileStage(stage)
         },
       },
     )
@@ -490,6 +492,7 @@ export function abortKittenLoad(): void {
   usePlayerStore.setState({
     isModelLoading: false,
     modelLoadPhase: 'idle',
+    modelCompileStage: null,
     modelError: null,
     modelProgress: 0,
     modelLoadedBytes: 0,
@@ -547,6 +550,7 @@ async function prepareKittenInBackgroundWork(): Promise<void> {
     modelError: null,
     modelFromCache: false,
     modelProgress: 0,
+    modelCompileStage: null,
     modelLoadPhase: 'downloading',
   })
 
@@ -617,6 +621,7 @@ async function switchEngineWork(): Promise<void> {
     modelError: null,
     modelFromCache: false,
     modelProgress: 0,
+    modelCompileStage: null,
     modelLoadPhase: 'downloading',
     voice: getPreferredVoice(),
     voices: [],

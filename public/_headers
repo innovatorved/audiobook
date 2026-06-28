@@ -7,6 +7,12 @@
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=31536000, immutable
 
+/ort/ort-wasm-simd-threaded.wasm
+  Content-Type: application/wasm
+
+/ort/ort-wasm-simd-threaded.mjs
+  Content-Type: text/javascript
+
 /kitten-model/*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
@@ -16,12 +22,3 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=31536000, immutable
-
-/assets/*.js
-  Content-Type: text/javascript
-
-/assets/*.mjs
-  Content-Type: text/javascript
-
-/assets/*.wasm
-  Content-Type: application/wasm

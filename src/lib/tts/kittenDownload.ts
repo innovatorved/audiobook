@@ -132,13 +132,18 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Preload manifest + first model parts so download starts before app JS boots. */
+/** Preload manifest + model parts so download starts before app JS boots. */
 export function preloadKittenModelAssets(): void {
   if (typeof document === 'undefined') return
   const hints = [
     '/kitten-model/manifest.json',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part0',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part1',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part2',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part3',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part4',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part5',
+    '/kitten-model/kitten_tts_micro_v0_8.ort.part6',
   ]
   for (const href of hints) {
     if (document.querySelector(`link[rel="preload"][href="${href}"]`)) continue

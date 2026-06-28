@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { TtsEngineType, VoiceInfo } from '@/lib/types'
 import { clampPlaybackSpeed } from '@/lib/audio/speed'
+import type { CompileStage } from '@/lib/tts/kittenTypes'
 
 export type ModelLoadStatus = 'idle' | 'downloading' | 'cached' | 'ready' | 'error'
 export type ModelLoadPhase = 'idle' | 'downloading' | 'compiling' | 'ready' | 'error'
@@ -15,6 +16,7 @@ interface PlayerState {
   modelTotalBytes: number
   modelStatus: ModelLoadStatus
   modelLoadPhase: ModelLoadPhase
+  modelCompileStage: CompileStage | null
   modelFromCache: boolean
   modelError: string | null
   speed: number
@@ -38,6 +40,7 @@ interface PlayerState {
     },
   ) => void
   setModelLoadPhase: (phase: ModelLoadPhase) => void
+  setModelCompileStage: (stage: CompileStage | null) => void
   setModelReady: (ready: boolean) => void
   setEngineReady: (ready: boolean) => void
   setModelError: (message: string | null) => void
@@ -62,6 +65,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   modelTotalBytes: 0,
   modelStatus: 'idle',
   modelLoadPhase: 'idle',
+  modelCompileStage: null,
   modelFromCache: false,
   modelError: null,
   speed: 1,
@@ -88,6 +92,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         state.modelLoadPhase === 'idle' && { modelLoadPhase: 'downloading' as const }),
     })),
   setModelLoadPhase: (phase) => set({ modelLoadPhase: phase }),
+  setModelCompileStage: (stage) => set({ modelCompileStage: stage }),
   setModelReady: (ready) =>
     set((state) => ({
       isModelReady: ready,
@@ -95,6 +100,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       modelProgress: ready ? 100 : 0,
       modelStatus: ready ? 'ready' : 'idle',
       modelLoadPhase: ready ? 'ready' : 'idle',
+      modelCompileStage: ready ? null : state.modelCompileStage,
       modelError: ready ? null : state.modelError,
       modelFromCache: ready ? state.modelFromCache : false,
     })),
@@ -106,6 +112,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       engineReady: false,
       modelStatus: 'error',
       modelLoadPhase: 'error',
+      modelCompileStage: null,
       modelError: message,
       modelProgress: state.modelProgress,
     })),
