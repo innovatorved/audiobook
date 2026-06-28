@@ -3,6 +3,7 @@ import type { TtsEngineType, VoiceInfo } from '@/lib/types'
 import { clampPlaybackSpeed } from '@/lib/audio/speed'
 
 export type ModelLoadStatus = 'idle' | 'downloading' | 'cached' | 'ready' | 'error'
+export type ModelLoadPhase = 'idle' | 'downloading' | 'compiling' | 'ready' | 'error'
 
 interface PlayerState {
   isPlaying: boolean
@@ -13,6 +14,7 @@ interface PlayerState {
   modelLoadedBytes: number
   modelTotalBytes: number
   modelStatus: ModelLoadStatus
+  modelLoadPhase: ModelLoadPhase
   modelFromCache: boolean
   modelError: string | null
   speed: number
@@ -28,8 +30,14 @@ interface PlayerState {
   setModelLoading: (
     loading: boolean,
     progress?: number,
-    details?: { loadedBytes?: number; totalBytes?: number; status?: ModelLoadStatus },
+    details?: {
+      loadedBytes?: number
+      totalBytes?: number
+      status?: ModelLoadStatus
+      phase?: ModelLoadPhase
+    },
   ) => void
+  setModelLoadPhase: (phase: ModelLoadPhase) => void
   setModelReady: (ready: boolean) => void
   setEngineReady: (ready: boolean) => void
   setModelError: (message: string | null) => void
@@ -53,6 +61,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   modelLoadedBytes: 0,
   modelTotalBytes: 0,
   modelStatus: 'idle',
+  modelLoadPhase: 'idle',
   modelFromCache: false,
   modelError: null,
   speed: 1,
@@ -67,19 +76,25 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   setPlaying: (isPlaying) => set({ isPlaying }),
   setModelLoading: (loading, progress = 0, details) =>
-    set({
+    set((state) => ({
       isModelLoading: loading,
       modelProgress: progress,
       ...(details?.loadedBytes !== undefined && { modelLoadedBytes: details.loadedBytes }),
       ...(details?.totalBytes !== undefined && { modelTotalBytes: details.totalBytes }),
       ...(details?.status !== undefined && { modelStatus: details.status }),
-    }),
+      ...(details?.phase !== undefined && { modelLoadPhase: details.phase }),
+      ...(loading &&
+        details?.phase === undefined &&
+        state.modelLoadPhase === 'idle' && { modelLoadPhase: 'downloading' as const }),
+    })),
+  setModelLoadPhase: (phase) => set({ modelLoadPhase: phase }),
   setModelReady: (ready) =>
     set((state) => ({
       isModelReady: ready,
       isModelLoading: false,
       modelProgress: ready ? 100 : 0,
       modelStatus: ready ? 'ready' : 'idle',
+      modelLoadPhase: ready ? 'ready' : 'idle',
       modelError: ready ? null : state.modelError,
       modelFromCache: ready ? state.modelFromCache : false,
     })),
@@ -90,6 +105,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       isModelReady: false,
       engineReady: false,
       modelStatus: 'error',
+      modelLoadPhase: 'error',
       modelError: message,
       modelProgress: state.modelProgress,
     })),

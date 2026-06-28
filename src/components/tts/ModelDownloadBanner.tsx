@@ -16,11 +16,12 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
     modelLoadedBytes,
     modelTotalBytes,
     modelStatus,
+    modelLoadPhase,
     modelError,
   } = usePlayerStore()
 
   if (modelStatus === 'error' && modelError) {
-    const engineStartFailed = modelProgress >= 50
+    const engineStartFailed = modelLoadPhase === 'compiling' || modelProgress >= 50
     return (
       <div className={cn('rounded-2xl bg-destructive/8 px-4 py-3 sm:px-5', className)}>
         <div className="mb-1.5 flex items-center gap-2">
@@ -53,8 +54,18 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   }
 
   const pct = Math.min(100, Math.max(0, modelProgress))
-  const hasByteCounts = modelTotalBytes > 0 && modelLoadedBytes > 0
+  const isDownloading = modelLoadPhase === 'downloading'
+  const isCompiling = modelLoadPhase === 'compiling'
+  const hasByteCounts =
+    isDownloading && modelTotalBytes > 0 && modelLoadedBytes > 0
   const showProgress = isModelLoading && !isModelReady
+
+  let progressLabel = `Preparing voice… ${pct}%`
+  if (isDownloading && hasByteCounts) {
+    progressLabel = `Downloading voice model… ${pct}% (${formatBytes(modelLoadedBytes)} / ${formatBytes(modelTotalBytes)})`
+  } else if (isCompiling) {
+    progressLabel = 'Starting voice engine… (can take 1–2 min in Chrome)'
+  }
 
   return (
     <div className={cn('space-y-2', className)}>
@@ -62,11 +73,7 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
         <div className="surface-panel px-4 py-3">
           <div className="flex items-center gap-2">
             <Loader2 className="size-4 shrink-0 animate-spin text-primary" aria-hidden />
-            <p className="text-sm text-muted-foreground">
-              {pct > 0 && pct < 95 && hasByteCounts
-                ? `Preparing voice… ${pct}% (${formatBytes(modelLoadedBytes)} / ${formatBytes(modelTotalBytes)})`
-                : `Preparing voice… ${pct}%`}
-            </p>
+            <p className="text-sm text-muted-foreground">{progressLabel}</p>
           </div>
           <Progress value={Math.max(pct, 4)} className="mt-2.5 h-1" aria-hidden />
         </div>

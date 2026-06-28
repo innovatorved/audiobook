@@ -1,14 +1,11 @@
+import type { KittenManifest } from '@/lib/tts/kittenModelCache'
+
 const MODEL_BASE = '/kitten-model'
 
 export type KittenDownloadProgress = {
   loaded: number
   total: number
   status: 'downloading' | 'cached' | 'ready'
-}
-
-type Manifest = {
-  repo: string
-  files: Record<string, { size: number; parts: number }>
 }
 
 async function fetchBuffer(
@@ -50,10 +47,11 @@ async function fetchChunked(
   if (parts === 1) {
     return fetchBuffer(`${MODEL_BASE}/${filename}`, onBytes)
   }
-  const buffers: ArrayBuffer[] = []
-  for (let i = 0; i < parts; i++) {
-    buffers.push(await fetchBuffer(`${MODEL_BASE}/${filename}.part${i}`, onBytes))
-  }
+  const buffers = await Promise.all(
+    Array.from({ length: parts }, (_, i) =>
+      fetchBuffer(`${MODEL_BASE}/${filename}.part${i}`, onBytes),
+    ),
+  )
   const combined = new Uint8Array(size)
   let offset = 0
   for (const buf of buffers) {
@@ -66,16 +64,21 @@ async function fetchChunked(
 export async function downloadKittenModel(
   _repoId: string,
   onProgress: (progress: KittenDownloadProgress) => void,
+  manifest?: KittenManifest,
 ): Promise<{ modelBuffer: ArrayBuffer; voicesBuffer: ArrayBuffer; config: Record<string, unknown> }> {
-  const manifestResp = await fetch(`${MODEL_BASE}/manifest.json`)
-  if (!manifestResp.ok) {
-    throw new Error(
-      'Voice model bundle missing. Rebuild and redeploy with npm run build.',
-    )
-  }
-  const manifest = (await manifestResp.json()) as Manifest
+  const resolvedManifest =
+    manifest ??
+    (await (async () => {
+      const resp = await fetch(`${MODEL_BASE}/manifest.json`)
+      if (!resp.ok) {
+        throw new Error(
+          'Voice model bundle missing. Rebuild and redeploy with npm run build.',
+        )
+      }
+      return (await resp.json()) as KittenManifest
+    })())
 
-  const totalSize = Object.values(manifest.files).reduce((acc, f) => acc + f.size, 0)
+  const totalSize = Object.values(resolvedManifest.files).reduce((acc, f) => acc + f.size, 0)
   let loaded = 0
   const tick = (delta: number) => {
     loaded += delta
@@ -84,7 +87,7 @@ export async function downloadKittenModel(
 
   onProgress({ loaded: 0, total: totalSize, status: 'downloading' })
 
-  const configMeta = manifest.files['config.json']
+  const configMeta = resolvedManifest.files['config.json']
   if (!configMeta) throw new Error('Manifest missing config.json')
   const configBuffer = await fetchChunked('config.json', configMeta.parts, configMeta.size, tick)
   const config = JSON.parse(new TextDecoder().decode(configBuffer)) as Record<string, unknown>
@@ -92,8 +95,8 @@ export async function downloadKittenModel(
   const modelFile = config.model_file as string | undefined
   const voicesFile = (config.voices as string | undefined) ?? 'voices.npz'
   if (!modelFile) throw new Error("config.json missing 'model_file'")
-  const modelMeta = manifest.files[modelFile]
-  const voicesMeta = manifest.files[voicesFile]
+  const modelMeta = resolvedManifest.files[modelFile]
+  const voicesMeta = resolvedManifest.files[voicesFile]
   if (!modelMeta) throw new Error(`Manifest missing ${modelFile}`)
   if (!voicesMeta) throw new Error(`Manifest missing ${voicesFile}`)
 

@@ -29,10 +29,19 @@ export interface MetadataRecord {
   engine: TtsEngineType
 }
 
+export interface VoiceModelCacheRecord {
+  manifestHash: string
+  modelBuffer: ArrayBuffer
+  voicesBuffer: ArrayBuffer
+  config: Record<string, unknown>
+  updatedAt: number
+}
+
 class AudiobookDatabase extends Dexie {
   documents!: Table<DocumentRecord, string>
   progress!: Table<ProgressRecord, string>
   metadata!: Table<MetadataRecord, string>
+  voiceModelCache!: Table<VoiceModelCacheRecord, string>
 
   constructor() {
     super(DB_NAME)
@@ -40,6 +49,12 @@ class AudiobookDatabase extends Dexie {
       documents: 'docId, createdAt',
       progress: 'docId',
       metadata: 'docId',
+    })
+    this.version(2).stores({
+      documents: 'docId, createdAt',
+      progress: 'docId',
+      metadata: 'docId',
+      voiceModelCache: 'manifestHash',
     })
   }
 }
