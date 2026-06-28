@@ -1,7 +1,8 @@
 import type { ProgressCallback, VoiceInfo } from '@/lib/types'
 import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engine'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
-import KittenWorker from '../../workers/kittenOrt.worker.ts?worker&inline'
+import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
+import KittenWorker from '../../workers/kittenOrt.worker.ts?worker'
 
 const LOAD_TIMEOUT_MS = 130_000
 
@@ -145,13 +146,12 @@ export class KittenEngine implements TtsEngine {
   private async ensureWorker(): Promise<Worker> {
     if (this.worker) return this.worker
     if (!this.workerReady) {
-      this.workerReady = this.createWorkerFromBlob()
+      this.workerReady = this.createWorker()
     }
     return this.workerReady
   }
 
-  /** Inline blob worker avoids COEP duplicate-header blocking on CF Pages. */
-  private async createWorkerFromBlob(): Promise<Worker> {
+  private async createWorker(): Promise<Worker> {
     const worker = new KittenWorker()
     this.attachWorkerHandlers(worker)
     this.worker = worker
@@ -238,14 +238,15 @@ export class KittenEngine implements TtsEngine {
     }
   }
 
-  private loadOnce(
+  private async loadOnce(
     onProgress: ProgressCallback,
     preload: KittenPreload,
     opts?: KittenLoadOptions,
   ): Promise<void> {
-    return this.ensureWorker().then(
-      (worker) =>
-        new Promise((resolve, reject) => {
+    const worker = await this.ensureWorker()
+    const ortWasmBuffer = await getOrtWasmBinary()
+
+    return new Promise((resolve, reject) => {
       let settled = false
 
       const finish = (fn: () => void) => {
@@ -289,11 +290,11 @@ export class KittenEngine implements TtsEngine {
           voicesBuffer: preload.voicesBuffer,
           config: preload.config,
           wasmBase: wasmBaseUrl(),
+          ortWasmBuffer,
         },
-        [preload.modelBuffer, preload.voicesBuffer],
+        [preload.modelBuffer, preload.voicesBuffer, ortWasmBuffer],
       )
-        }),
-    )
+    })
   }
 
   async load(

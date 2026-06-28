@@ -137,6 +137,8 @@ export function preloadKittenModelAssets(): void {
   if (typeof document === 'undefined') return
   const hints = [
     '/kitten-model/manifest.json',
+    '/ort/ort-wasm-simd-threaded.wasm',
+    '/ort/ort-wasm-simd-threaded.mjs',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part0',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part1',
     '/kitten-model/kitten_tts_micro_v0_8.ort.part2',

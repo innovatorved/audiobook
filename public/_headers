@@ -4,6 +4,7 @@
 
 /ort/*
   Cache-Control: public, max-age=31536000, immutable
+  Cross-Origin-Resource-Policy: cross-origin
 
 /ort/ort-wasm-simd-threaded.wasm
   Content-Type: application/wasm

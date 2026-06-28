@@ -21,6 +21,7 @@ type LoadMessage = {
   voicesBuffer: ArrayBuffer
   config: Record<string, unknown>
   wasmBase: string
+  ortWasmBuffer?: ArrayBuffer
 }
 
 type GenerateMessage = {
@@ -110,10 +111,13 @@ function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> 
   })
 }
 
-function configureOrt(wasmBase: string): void {
+function configureOrt(wasmBase: string, ortWasmBuffer?: ArrayBuffer): void {
   ort.env.wasm.wasmPaths = {
     mjs: `${wasmBase}ort-wasm-simd-threaded.mjs`,
     wasm: `${wasmBase}ort-wasm-simd-threaded.wasm`,
+  }
+  if (ortWasmBuffer && ortWasmBuffer.byteLength > 0) {
+    ort.env.wasm.wasmBinary = ortWasmBuffer
   }
   ort.env.wasm.numThreads = 1
   ort.env.wasm.simd = true
@@ -127,14 +131,22 @@ async function handleLoad(msg: LoadMessage): Promise<void> {
   activeGenerateId = null
 
   postProgress(ESTIMATED_BYTES * 0.4, ESTIMATED_BYTES, 'downloading', 'ort-init')
-  configureOrt(msg.wasmBase)
+  configureOrt(msg.wasmBase, msg.ortWasmBuffer)
   postProgress(ESTIMATED_BYTES * 0.55, ESTIMATED_BYTES, 'downloading', 'ort-init')
 
   postProgress(ESTIMATED_BYTES * 0.6, ESTIMATED_BYTES, 'downloading', 'compiling')
-  const session = await raceWithTimeout(
-    ort.InferenceSession.create(msg.modelBuffer, SESSION_OPTIONS),
-    COMPILE_TIMEOUT_MS,
-  )
+  const compileHeartbeat = setInterval(() => {
+    postProgress(ESTIMATED_BYTES * 0.65, ESTIMATED_BYTES, 'downloading', 'compiling')
+  }, 5000)
+  let session
+  try {
+    session = await raceWithTimeout(
+      ort.InferenceSession.create(msg.modelBuffer, SESSION_OPTIONS),
+      COMPILE_TIMEOUT_MS,
+    )
+  } finally {
+    clearInterval(compileHeartbeat)
+  }
 
   postProgress(ESTIMATED_BYTES * 0.85, ESTIMATED_BYTES, 'downloading', 'voices')
   const voices = await loadNpz(msg.voicesBuffer)
