@@ -7,10 +7,18 @@
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=31536000, immutable
 
+/ort/*.wasm
+  Content-Type: application/wasm
+
+/ort/*.mjs
+  Content-Type: text/javascript
+
 /kitten-model/*
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=31536000, immutable
 
 /assets/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
   Cache-Control: public, max-age=31536000, immutable

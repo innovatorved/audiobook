@@ -1,4 +1,5 @@
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw, Speech } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertCircle, CheckCircle2, Loader2, RotateCcw, Speech, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { savePreferences } from '@/lib/preferences'
@@ -6,6 +7,25 @@ import { formatBytes } from '@/lib/tts/kittenDownload'
 import { abortKittenLoad, switchEngine } from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import { cn } from '@/lib/utils'
+
+function useCompileElapsed(active: boolean): number {
+  const [seconds, setSeconds] = useState(0)
+
+  useEffect(() => {
+    if (!active) {
+      setSeconds(0)
+      return
+    }
+    const start = Date.now()
+    setSeconds(0)
+    const id = window.setInterval(() => {
+      setSeconds(Math.floor((Date.now() - start) / 1000))
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [active])
+
+  return seconds
+}
 
 export function ModelDownloadBanner({ className }: { className?: string }) {
   const {
@@ -19,30 +39,56 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
     modelError,
   } = usePlayerStore()
 
-  if (modelStatus === 'error' && modelError) {
+  const [errorDismissed, setErrorDismissed] = useState(false)
+  const isCompiling = modelLoadPhase === 'compiling'
+  const compileSeconds = useCompileElapsed(isCompiling)
+
+  useEffect(() => {
+    if (modelStatus !== 'error') {
+      setErrorDismissed(false)
+    }
+  }, [modelStatus, modelError])
+
+  const useBrowserVoice = () => {
+    abortKittenLoad()
+    savePreferences({ engine: 'browser' })
+  }
+
+  if (modelStatus === 'error' && modelError && !errorDismissed) {
     const engineStartFailed = modelLoadPhase === 'compiling' || modelProgress >= 50
     return (
       <div className={cn('rounded-2xl bg-destructive/8 px-4 py-3 sm:px-5', className)}>
-        <div className="mb-1.5 flex items-center gap-2">
-          <AlertCircle className="size-4 text-destructive" aria-hidden />
-          <p className="text-sm font-medium text-destructive">
-            {engineStartFailed ? 'Voice engine failed to start' : 'Voice model download failed'}
-          </p>
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="size-4 text-destructive" aria-hidden />
+            <p className="text-sm font-medium text-destructive">
+              {engineStartFailed ? 'Voice engine failed to start' : 'Voice model download failed'}
+            </p>
+          </div>
+          {isModelReady && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="size-8 shrink-0 p-0"
+              aria-label="Dismiss"
+              onClick={() => setErrorDismissed(true)}
+            >
+              <X className="size-4" />
+            </Button>
+          )}
         </div>
         <p className="mb-3 text-sm text-muted-foreground">{modelError}</p>
+        {isModelReady && (
+          <p className="mb-3 text-xs text-muted-foreground">
+            Browser voice is ready for playback.
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => void switchEngine('kitten')}>
             <RotateCcw className="size-3.5" />
             Retry
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              abortKittenLoad()
-              savePreferences({ engine: 'browser' })
-            }}
-          >
+          <Button size="sm" variant="outline" onClick={useBrowserVoice}>
             <Speech className="size-3.5" />
             Use browser voice
           </Button>
@@ -53,7 +99,6 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
 
   const pct = Math.min(100, Math.max(0, modelProgress))
   const isDownloading = modelLoadPhase === 'downloading'
-  const isCompiling = modelLoadPhase === 'compiling'
   const hasByteCounts =
     isDownloading && modelTotalBytes > 0 && modelLoadedBytes > 0
   const showProgress =
@@ -63,7 +108,7 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
   if (isDownloading && hasByteCounts) {
     progressLabel = `Downloading voice model… ${pct}% (${formatBytes(modelLoadedBytes)} / ${formatBytes(modelTotalBytes)})`
   } else if (isCompiling) {
-    progressLabel = 'Starting voice engine…'
+    progressLabel = `Starting voice engine… (${compileSeconds}s)`
   } else if (showProgress) {
     progressLabel = `Preparing neural voice… ${pct}%`
   }
@@ -81,6 +126,19 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
             <p className="mt-2 text-xs text-muted-foreground">
               Browser voice is available while the neural model loads.
             </p>
+          )}
+          {isCompiling && compileSeconds >= 45 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Taking longer than usual… you can keep using browser voice.
+            </p>
+          )}
+          {isCompiling && (
+            <div className="mt-3">
+              <Button size="sm" variant="outline" onClick={useBrowserVoice}>
+                <Speech className="size-3.5" />
+                Continue with browser voice
+              </Button>
+            </div>
           )}
         </div>
       )}

@@ -22,18 +22,29 @@ export async function hashKittenManifest(manifest: KittenManifest): Promise<stri
   return digestSha256(new TextEncoder().encode(text).buffer)
 }
 
+function cloneArrayBuffer(buf: ArrayBuffer): ArrayBuffer | null {
+  if (buf.byteLength === 0) return null
+  try {
+    return buf.slice(0)
+  } catch {
+    return null
+  }
+}
+
 export async function loadCachedKittenModel(
   manifestHash: string,
 ): Promise<KittenPreload | null> {
   await ensureDbOpen()
   const record = await db.voiceModelCache.get(manifestHash)
   if (!record) return null
-  if (record.modelBuffer.byteLength === 0 || record.voicesBuffer.byteLength === 0) {
-    return null
-  }
+
+  const modelBuffer = cloneArrayBuffer(record.modelBuffer)
+  const voicesBuffer = cloneArrayBuffer(record.voicesBuffer)
+  if (!modelBuffer || !voicesBuffer) return null
+
   return {
-    modelBuffer: record.modelBuffer,
-    voicesBuffer: record.voicesBuffer,
+    modelBuffer,
+    voicesBuffer,
     config: record.config,
   }
 }

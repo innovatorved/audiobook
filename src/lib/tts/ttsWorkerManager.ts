@@ -21,7 +21,7 @@ const FIRST_STREAM_WINDOW = 1
 const CONTINUE_STREAM_WINDOW = 4
 const ENGINE_BYTES = 58 * 1024 * 1024
 const DOWNLOAD_WATCHDOG_MS = 180_000
-const COMPILE_WATCHDOG_MS = 90_000
+const COMPILE_WATCHDOG_MS = 120_000
 const STALE_JOB_HARD_STOP_MS = 200
 
 type ChunkHandler = (chunk: {
@@ -127,6 +127,9 @@ export function clearSynthCache(): void {
 export function unloadTtsEngine(): void {
   clearLoadWatchdog()
   loadGeneration++
+  if (engine) {
+    engine.dispose()
+  }
   loadInFlight = false
   loading = false
   loaded = false
@@ -177,6 +180,9 @@ function applyError(message: string): void {
   console.error('[TTS]', message)
   loadGeneration++
   clearLoadWatchdog()
+  if (engine) {
+    engine.dispose()
+  }
   loadInFlight = false
   loading = false
   loaded = false
@@ -468,6 +474,9 @@ export function isPlaybackReady(): boolean {
 export function abortKittenLoad(): void {
   loadGeneration++
   clearLoadWatchdog()
+  if (engine) {
+    engine.dispose()
+  }
   loadInFlight = false
   loading = false
   loaded = false
