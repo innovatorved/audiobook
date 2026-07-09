@@ -23,7 +23,7 @@ export function AppLogo({ size = 'sm', className }: AppLogoProps) {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center justify-center bg-primary text-[#121212]',
+        'inline-flex shrink-0 items-center justify-center bg-primary text-primary-foreground',
         dims.frame,
         dims.radius,
         className,
