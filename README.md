@@ -1,18 +1,8 @@
 # Audiobook
 
-Turn PDFs into audiobooks in your browser. Upload a PDF, listen to it, and follow along with highlighting.
+Turn PDFs into audiobooks in your browser. Upload a PDF, listen with offline neural TTS, and follow along with highlighting.
 
 **Live:** https://audiobook.vedgupta.in/
-
-## What it does
-
-- Upload PDFs and keep them in your library
-- Listen with the offline neural voice or your browser voice
-- Follow word and sentence highlighting while listening
-- Click text to start reading from that point
-- Resume where you left off
-- Read scanned PDFs with OCR
-- Works locally in the browser without API keys
 
 ## Run locally
 
@@ -21,34 +11,11 @@ bun install
 bun run dev
 ```
 
-Open http://localhost:5173, upload a PDF, and press play.
+Open http://localhost:5173.
 
 ## Build
-
-Requires **Python 3** only when regenerating the voice model locally. The pre-built ORT bundle in `public/kitten-model/` is committed so Cloudflare Pages can deploy without Python.
-
-To rebuild the model (after a Kitten update):
-
-```bash
-rm -rf public/kitten-model .venv
-node scripts/fetch-kitten-model.mjs
-```
-
-Then commit the updated `public/kitten-model/` files.
 
 ```bash
 bun run build
 bun run preview
 ```
-
-## Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Space | Play / pause |
-| ← / → | Previous / next sentence |
-| ↑ / ↓ | Speed up / down |
-
-## Contact
-
-vedgupta@protonmail.com
