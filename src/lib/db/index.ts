@@ -37,11 +37,18 @@ export interface VoiceModelCacheRecord {
   updatedAt: number
 }
 
+export interface OrtWasmCacheRecord {
+  id: string
+  wasmBuffer: ArrayBuffer
+  updatedAt: number
+}
+
 class AudiobookDatabase extends Dexie {
   documents!: Table<DocumentRecord, string>
   progress!: Table<ProgressRecord, string>
   metadata!: Table<MetadataRecord, string>
   voiceModelCache!: Table<VoiceModelCacheRecord, string>
+  ortWasmCache!: Table<OrtWasmCacheRecord, string>
 
   constructor() {
     super(DB_NAME)
@@ -55,6 +62,13 @@ class AudiobookDatabase extends Dexie {
       progress: 'docId',
       metadata: 'docId',
       voiceModelCache: 'manifestHash',
+    })
+    this.version(3).stores({
+      documents: 'docId, createdAt',
+      progress: 'docId',
+      metadata: 'docId',
+      voiceModelCache: 'manifestHash',
+      ortWasmCache: 'id',
     })
   }
 }

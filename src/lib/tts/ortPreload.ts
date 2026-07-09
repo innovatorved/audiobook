@@ -1,29 +1,44 @@
+import { loadCachedOrtWasm, saveCachedOrtWasm } from '@/lib/tts/ortCache'
+
 const ORT_WASM = '/ort/ort-wasm-simd-threaded.wasm'
 const ORT_MJS = '/ort/ort-wasm-simd-threaded.mjs'
 
 let preloadPromise: Promise<void> | null = null
 let wasmBinary: ArrayBuffer | null = null
 
+async function fetchOrtWasmFromNetwork(): Promise<ArrayBuffer> {
+  const [wasmResp, mjsResp] = await Promise.all([
+    fetch(ORT_WASM, { cache: 'force-cache' }),
+    fetch(ORT_MJS, { cache: 'force-cache' }),
+  ])
+  if (!wasmResp.ok) {
+    throw new Error(
+      `ORT runtime missing (${ORT_WASM} returned ${wasmResp.status}). Rebuild and redeploy.`,
+    )
+  }
+  if (!mjsResp.ok) {
+    throw new Error(
+      `ORT runtime missing (${ORT_MJS} returned ${mjsResp.status}). Rebuild and redeploy.`,
+    )
+  }
+  const buffer = await wasmResp.arrayBuffer()
+  await mjsResp.text()
+  return buffer
+}
+
 /** Warm ORT wasm assets during model download so compile fails fast if missing. */
 export function preloadOrtWasm(): Promise<void> {
   if (!preloadPromise) {
     preloadPromise = (async () => {
-      const [wasmResp, mjsResp] = await Promise.all([
-        fetch(ORT_WASM, { cache: 'force-cache' }),
-        fetch(ORT_MJS, { cache: 'force-cache' }),
-      ])
-      if (!wasmResp.ok) {
-        throw new Error(
-          `ORT runtime missing (${ORT_WASM} returned ${wasmResp.status}). Rebuild and redeploy.`,
-        )
+      const cached = await loadCachedOrtWasm()
+      if (cached && cached.byteLength > 0) {
+        wasmBinary = cached
+        return
       }
-      if (!mjsResp.ok) {
-        throw new Error(
-          `ORT runtime missing (${ORT_MJS} returned ${mjsResp.status}). Rebuild and redeploy.`,
-        )
-      }
-      wasmBinary = await wasmResp.arrayBuffer()
-      await mjsResp.text()
+
+      const buffer = await fetchOrtWasmFromNetwork()
+      wasmBinary = buffer
+      saveCachedOrtWasm(buffer)
     })()
   }
   return preloadPromise

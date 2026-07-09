@@ -119,11 +119,20 @@ export async function loadKittenOnMainThread(
   onProgress(ESTIMATED_BYTES * 0.6, ESTIMATED_BYTES, 'downloading')
 
   assertNotAborted(shouldAbort)
-  const session = await raceWithTimeout(
-    ort.InferenceSession.create(modelBuffer, SESSION_OPTIONS),
-    COMPILE_TIMEOUT_MS,
-    shouldAbort,
-  )
+  const compileHeartbeat = setInterval(() => {
+    onProgress(ESTIMATED_BYTES * 0.65, ESTIMATED_BYTES, 'downloading')
+    onStage?.('compiling')
+  }, 5000)
+  let session
+  try {
+    session = await raceWithTimeout(
+      ort.InferenceSession.create(modelBuffer, SESSION_OPTIONS),
+      COMPILE_TIMEOUT_MS,
+      shouldAbort,
+    )
+  } finally {
+    clearInterval(compileHeartbeat)
+  }
 
   onStage?.('voices')
   onProgress(ESTIMATED_BYTES * 0.85, ESTIMATED_BYTES, 'downloading')
