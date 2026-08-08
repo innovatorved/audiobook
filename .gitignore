@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 public/ort
+.wrangler
 *.local
 .venv
 *.local

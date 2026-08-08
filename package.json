@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "sync:ort": "node scripts/sync-ort-wasm.mjs",
+    "sync:ort": "node scripts/sync-ort-wasm.mjs && node scripts/patch-phonemizer.mjs",
     "dev": "bun run sync:ort && node scripts/fetch-kitten-model.mjs && bunx --bun vite",
     "build": "tsc --noEmit && node scripts/sync-ort-wasm.mjs && node scripts/production-build.mjs",
     "lint": "eslint .",
