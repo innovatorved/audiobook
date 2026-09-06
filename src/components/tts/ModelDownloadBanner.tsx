@@ -13,22 +13,20 @@ function useCompileElapsed(active: boolean): number {
   const [seconds, setSeconds] = useState(0)
 
   useEffect(() => {
-    if (!active) {
-      setSeconds(0)
-      return
-    }
+    if (!active) return
+
     const start = performance.now()
-    setSeconds(0)
-    let frameId = 0
-    const tick = () => {
+    const timer = setInterval(() => {
       setSeconds(Math.floor((performance.now() - start) / 1000))
-      frameId = requestAnimationFrame(tick)
+    }, 1000)
+
+    return () => {
+      clearInterval(timer)
+      setSeconds(0)
     }
-    frameId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frameId)
   }, [active])
 
-  return seconds
+  return active ? seconds : 0
 }
 
 export function ModelDownloadBanner({ className }: { className?: string }) {
@@ -44,15 +42,10 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
     modelError,
   } = usePlayerStore()
 
-  const [errorDismissed, setErrorDismissed] = useState(false)
+  const [dismissedError, setDismissedError] = useState<string | null>(null)
+  const errorDismissed = Boolean(modelError && dismissedError === modelError)
   const isCompiling = modelLoadPhase === 'compiling'
   const compileSeconds = useCompileElapsed(isCompiling)
-
-  useEffect(() => {
-    if (modelStatus !== 'error') {
-      setErrorDismissed(false)
-    }
-  }, [modelStatus, modelError])
 
   const useBrowserVoice = () => {
     abortKittenLoad()
@@ -76,7 +69,7 @@ export function ModelDownloadBanner({ className }: { className?: string }) {
               variant="ghost"
               className="size-8 shrink-0 p-0"
               aria-label="Dismiss"
-              onClick={() => setErrorDismissed(true)}
+              onClick={() => setDismissedError(modelError ?? '')}
             >
               <X className="size-4" />
             </Button>

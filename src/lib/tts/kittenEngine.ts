@@ -3,7 +3,11 @@ import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engi
 import type { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
 import { LoadAbortedError, loadKittenOnMainThread } from '@/lib/tts/kittenMainThread'
 import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
-import { prefersInlineWorker, useMainThreadOrt } from '@/lib/tts/kittenPlatform'
+import {
+  isCrossOriginIsolated,
+  prefersInlineWorker,
+  shouldUseMainThreadOrt,
+} from '@/lib/tts/kittenPlatform'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
 import KittenWorker from '../../workers/kittenOrt.worker.ts?worker'
 import InlineKittenWorker from '../../workers/kittenOrt.worker.ts?worker&inline'
@@ -91,7 +95,7 @@ function formatWorkerError(event: ErrorEvent): string {
 }
 
 export class KittenEngine implements TtsEngine {
-  private readonly mainThreadMode = useMainThreadOrt()
+  private readonly mainThreadMode = shouldUseMainThreadOrt()
   private tts: KittenTtsRuntime | null = null
   private worker: Worker | null = null
   private workerReady: Promise<Worker> | null = null
@@ -337,6 +341,12 @@ export class KittenEngine implements TtsEngine {
     preload?: KittenPreload,
     opts?: KittenLoadOptions,
   ): Promise<void> {
+    if (!isCrossOriginIsolated()) {
+      throw new Error(
+        'Cross-origin isolation (SharedArrayBuffer) is not available in this browser environment. Using browser speech instead.',
+      )
+    }
+
     if (!preload) {
       throw new Error('KittenEngine requires pre-downloaded model buffers')
     }

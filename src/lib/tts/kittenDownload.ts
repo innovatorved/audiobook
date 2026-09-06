@@ -47,6 +47,18 @@ function fileUrls(filename: string, meta: FileMeta): string[] {
   return Array.from({ length: meta.parts }, (_, i) => `${MODEL_BASE}/${filename}.part${i}`)
 }
 
+async function yieldToMain(): Promise<void> {
+  if (
+    typeof globalThis !== 'undefined' &&
+    'scheduler' in globalThis &&
+    typeof (globalThis.scheduler as { yield?: () => Promise<void> })?.yield === 'function'
+  ) {
+    await (globalThis.scheduler as { yield: () => Promise<void> }).yield()
+  } else {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
 async function fetchFile(
   filename: string,
   meta: FileMeta,
@@ -59,14 +71,14 @@ async function fetchFile(
   const buffers: ArrayBuffer[] = []
   for (const url of urls) {
     buffers.push(await fetchBuffer(url, onBytes))
-    await scheduler.yield()
+    await yieldToMain()
   }
   const combined = new Uint8Array(meta.size)
   let offset = 0
   for (const buf of buffers) {
     combined.set(new Uint8Array(buf), offset)
     offset += buf.byteLength
-    await scheduler.yield()
+    await yieldToMain()
   }
   return combined.buffer
 }

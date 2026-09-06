@@ -2,21 +2,31 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
 
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: no-cache, must-revalidate
+
 /ort/*
   Cache-Control: public, max-age=31536000, immutable
   Cross-Origin-Resource-Policy: cross-origin
 
 /ort/ort-wasm-simd-threaded.wasm
   Content-Type: application/wasm
+  Cross-Origin-Resource-Policy: cross-origin
 
 /ort/ort-wasm-simd-threaded.mjs
   Content-Type: text/javascript
+  Cross-Origin-Resource-Policy: cross-origin
 
 /kitten-model/*
   Cache-Control: public, max-age=31536000, immutable
+  Cross-Origin-Resource-Policy: cross-origin
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
-
-/assets/*
   Cross-Origin-Resource-Policy: same-origin

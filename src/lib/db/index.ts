@@ -188,7 +188,7 @@ export async function saveDocument(name: string, buffer: ArrayBuffer): Promise<s
       createdAt: existing?.createdAt ?? Date.now(),
     })
   } catch (err) {
-    throw new Error(formatStorageError(err))
+    throw new Error(formatStorageError(err), { cause: err })
   }
 
   return docId

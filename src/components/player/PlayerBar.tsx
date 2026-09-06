@@ -27,7 +27,6 @@ export function PlayerBar({
 }: PlayerBarProps) {
   const {
     isPlaying,
-    isModelReady,
     isModelLoading,
     modelProgress,
     modelLoadedBytes,

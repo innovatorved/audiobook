@@ -22,30 +22,38 @@ export async function hashKittenManifest(manifest: KittenManifest): Promise<stri
   return digestSha256(new TextEncoder().encode(text).buffer)
 }
 
-function cloneArrayBuffer(buf: ArrayBuffer): ArrayBuffer | null {
-  if (buf.byteLength === 0) return null
-  try {
-    return buf.slice(0)
-  } catch {
-    return null
-  }
-}
-
 export async function loadCachedKittenModel(
   manifestHash: string,
 ): Promise<KittenPreload | null> {
   await ensureDbOpen()
   const record = await db.voiceModelCache.get(manifestHash)
-  if (!record) return null
-
-  const modelBuffer = cloneArrayBuffer(record.modelBuffer)
-  const voicesBuffer = cloneArrayBuffer(record.voicesBuffer)
-  if (!modelBuffer || !voicesBuffer) return null
+  if (!record || !record.modelBuffer || !record.voicesBuffer) return null
+  if (record.modelBuffer.byteLength === 0 || record.voicesBuffer.byteLength === 0) return null
 
   return {
-    modelBuffer,
-    voicesBuffer,
+    modelBuffer: record.modelBuffer,
+    voicesBuffer: record.voicesBuffer,
     config: record.config,
+  }
+}
+
+/** Fallback to the latest cached voice model in IndexedDB when offline. */
+export async function loadLatestCachedKittenModel(): Promise<{
+  preload: KittenPreload
+  manifestHash: string
+} | null> {
+  await ensureDbOpen()
+  const record = await db.voiceModelCache.orderBy('updatedAt').reverse().first()
+  if (!record || !record.modelBuffer || !record.voicesBuffer) return null
+  if (record.modelBuffer.byteLength === 0 || record.voicesBuffer.byteLength === 0) return null
+
+  return {
+    preload: {
+      modelBuffer: record.modelBuffer,
+      voicesBuffer: record.voicesBuffer,
+      config: record.config,
+    },
+    manifestHash: record.manifestHash,
   }
 }
 

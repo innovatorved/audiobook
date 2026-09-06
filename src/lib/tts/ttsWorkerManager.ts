@@ -5,8 +5,10 @@ import {
   fetchKittenManifest,
   hashKittenManifest,
   loadCachedKittenModel,
+  loadLatestCachedKittenModel,
   saveCachedKittenModel,
 } from '@/lib/tts/kittenModelCache'
+import { isCrossOriginIsolated } from '@/lib/tts/kittenPlatform'
 import { getPreferredVoice, resolveVoiceForEngine } from '@/lib/preferences'
 import { syncVoiceWithEngineVoices } from '@/lib/tts/voiceSync'
 import {
@@ -354,7 +356,21 @@ async function resolveKittenPreload(generation: number): Promise<KittenPreload> 
   )
 
   const ortWarm = preloadOrtWasm()
-  const manifest = await fetchKittenManifest()
+  let manifest
+  try {
+    manifest = await fetchKittenManifest()
+  } catch (err) {
+    const offlineCached = await loadLatestCachedKittenModel()
+    if (offlineCached && generation === loadGeneration) {
+      await ortWarm
+      usePlayerStore.setState({ modelFromCache: true })
+      applyProgress(ENGINE_BYTES, ENGINE_BYTES, 'cached', 'downloading', generation)
+      clearLoadWatchdog()
+      return offlineCached.preload
+    }
+    throw err
+  }
+
   if (generation !== loadGeneration) {
     throw new Error('Voice engine load aborted')
   }
@@ -539,6 +555,12 @@ export async function switchEngine(_engineType: 'kitten' = 'kitten'): Promise<vo
 async function prepareKittenInBackgroundWork(): Promise<void> {
   if (loadInFlight && loaded) return
 
+  if (!isCrossOriginIsolated()) {
+    console.info('[TTS] Cross-origin isolation unavailable; using browser speech engine.')
+    void activateBrowserEngine()
+    return
+  }
+
   loading = true
   loadInFlight = true
 
@@ -603,6 +625,12 @@ async function prepareKittenInBackgroundWork(): Promise<void> {
 
 async function switchEngineWork(): Promise<void> {
   if (loadInFlight && loaded) return
+
+  if (!isCrossOriginIsolated()) {
+    toast.info('Cross-origin isolation is not supported in this browser. Using system browser voices.')
+    void activateBrowserEngine()
+    return
+  }
 
   const startingCold = !loaded && !loading
   if (startingCold) {

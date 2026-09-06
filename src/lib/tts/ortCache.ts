@@ -2,20 +2,11 @@ import { db, ensureDbOpen } from '@/lib/db/index'
 
 export const ORT_WASM_CACHE_KEY = 'ort-wasm-simd-threaded'
 
-function cloneArrayBuffer(buf: ArrayBuffer): ArrayBuffer | null {
-  if (buf.byteLength === 0) return null
-  try {
-    return buf.slice(0)
-  } catch {
-    return null
-  }
-}
-
 export async function loadCachedOrtWasm(): Promise<ArrayBuffer | null> {
   await ensureDbOpen()
   const record = await db.ortWasmCache.get(ORT_WASM_CACHE_KEY)
-  if (!record) return null
-  return cloneArrayBuffer(record.wasmBuffer)
+  if (!record || !record.wasmBuffer || record.wasmBuffer.byteLength === 0) return null
+  return record.wasmBuffer
 }
 
 async function writeCachedOrtWasm(wasmBuffer: ArrayBuffer): Promise<void> {

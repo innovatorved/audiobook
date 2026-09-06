@@ -100,7 +100,6 @@ export function ReaderPage() {
     speed,
     setSpeed,
     engine,
-    voice,
     setVoice,
     activeWordIndex,
     activePageNum,
@@ -158,7 +157,7 @@ export function ReaderPage() {
   )
 
   const applyContentStart = useCallback(
-    (sents: SentenceInfo[], mappedWords: WordPosition[], texts: string[]) => {
+    (sents: SentenceInfo[], mappedWords: WordPosition[], _texts: string[]) => {
       const sentenceIdx = findContentStartSentence(sents, mappedWords)
       const sentence = sents[sentenceIdx]
       if (sentence) {
@@ -237,7 +236,7 @@ export function ReaderPage() {
         const rawWords = await extractAllDigitalWords(pdf)
         const pagesWithText = new Set(rawWords.map((w) => w.pageNum)).size
         const heuristicScanned = await isScannedPdf(pdf)
-        const scanned = rawWords.length === 0 && heuristicScanned
+        const scanned = (rawWords.length === 0 || pagesWithText === 0) && heuristicScanned
         setScanned(scanned)
 
         if (scanned) {
@@ -694,18 +693,15 @@ export function ReaderPage() {
       sentenceTexts.length,
       sentences,
       words,
-      isModelReady,
-      engineReady,
-      engine,
       stopStream,
       beginStream,
       startBrowserSpeech,
       startHighlightSync,
-      setActiveWord,
       setSentenceIndex,
       setPlaying,
       persist,
       resetFollowHighlight,
+      ensureEngine,
     ],
   )
 
@@ -770,17 +766,7 @@ export function ReaderPage() {
     }
 
     if (isPlaying) {
-      playbackGenRef.current++
-      stopStream()
-      streamingRef.current = false
-      if (usesBrowserPlayback()) {
-        browserSpeech.pause()
-      } else {
-        await audioScheduler.pause()
-        highlightSync.pause()
-      }
-      setPlaying(false)
-      void persist()
+      await pausePlayback()
     } else {
       enableContinuousPrefetch(true)
       const resumeIndex = getResumeSentenceIndex()
@@ -795,18 +781,15 @@ export function ReaderPage() {
     }
   }, [
     isPlaying,
-    isModelReady,
     isModelLoading,
-    engine,
     sentenceTexts,
     sentences,
     activeWordIndex,
     getResumeSentenceIndex,
-    setPlaying,
-    stopStream,
-    persist,
     startFromSentence,
     enableContinuousPrefetch,
+    pausePlayback,
+    ensureEngine,
   ])
 
   useEffect(() => {
@@ -1002,7 +985,6 @@ export function ReaderPage() {
       docId,
       isScanned,
       totalPages,
-      engine,
       isPlaying,
       activeWordIndex,
       sentences,

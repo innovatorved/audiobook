@@ -78,6 +78,11 @@ function findPython() {
 }
 
 function ensurePythonWithOrt() {
+  if (process.env.CF_PAGES === '1' || process.env.CF_PAGES === 'true' || process.env.CI) {
+    throw new Error(
+      '[kitten-model] Running in CI / Cloudflare Pages but voice model files are missing or incomplete. Ensure public/kitten-model is committed to git.',
+    )
+  }
   if (!existsSync(venvPython)) {
     console.log('[kitten-model] creating Python venv for ORT conversion…')
     const bootstrap = findPython()

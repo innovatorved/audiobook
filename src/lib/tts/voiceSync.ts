@@ -1,5 +1,4 @@
 import {
-  getPreferredVoice,
   rememberVoice,
   resolveVoiceForEngine,
 } from '@/lib/preferences'

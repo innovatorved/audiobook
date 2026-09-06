@@ -1,5 +1,5 @@
 /** Desktop Chrome stalls on large worker transfers; mobile/Android uses the worker path. */
-export function useMainThreadOrt(): boolean {
+export function shouldUseMainThreadOrt(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent
   const isChrome = /Chrome\//.test(ua) && !/Brave|Edg\//.test(ua)
@@ -13,4 +13,13 @@ export function useMainThreadOrt(): boolean {
 export function prefersInlineWorker(): boolean {
   if (typeof navigator === 'undefined') return false
   return /Android/i.test(navigator.userAgent)
+}
+
+/** Multi-threaded ONNX Runtime Web requires cross-origin isolation (COOP + COEP) for SharedArrayBuffer. */
+export function isCrossOriginIsolated(): boolean {
+  return (
+    typeof globalThis !== 'undefined' &&
+    Boolean(globalThis.crossOriginIsolated) &&
+    typeof SharedArrayBuffer !== 'undefined'
+  )
 }
