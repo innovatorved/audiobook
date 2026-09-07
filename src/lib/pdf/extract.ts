@@ -18,11 +18,16 @@ export function getTextItemBounds(
   const scale = viewport.scale
   const width = item.width * scale
   const rawHeight = item.height > 0 ? item.height * scale : Math.hypot(tx[2], tx[3])
-  const height = rawHeight > 0 ? rawHeight : 16 * scale
+  const fontHeight = rawHeight > 0 ? rawHeight : 16 * scale
+  // Anchor to visual text glyphs from baseline tx[5]:
+  // Ascent is ~0.75 of font size above baseline, descent is ~0.15 of font size below.
+  const ascent = fontHeight * 0.75
+  const height = fontHeight * 0.90
+  const top = tx[5] - ascent
 
   return {
     left: tx[4],
-    top: tx[5] - height,
+    top,
     width,
     height,
   }

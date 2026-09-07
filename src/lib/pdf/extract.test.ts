@@ -34,10 +34,19 @@ describe('PDF text extraction and highlight coverage', () => {
     expect(bounds15.left).toBe(75)
     // Width must be scaled by 1.5: 200 * 1.5 = 300 (previously was unscaled 200)
     expect(bounds15.width).toBe(300)
-    // Height must be scaled by 1.5: 16 * 1.5 = 24 (previously was unscaled 16)
-    expect(bounds15.height).toBe(24)
-    // Top must be tx[5] - height: (750 - 400*1.5) - 24 = 150 - 24 = 126
-    expect(bounds15.top).toBe(126)
+    // Height is visual text glyph height (~0.90 * fontHeight): 24 * 0.90 = 21.6
+    expect(bounds15.height).toBe(21.6)
+    // Top is baseline - ascent: 150 - (24 * 0.75) = 150 - 18 = 132
+    expect(bounds15.top).toBe(132)
+  })
+
+  it('toHighlightBounds produces compact highlight covering just the text', async () => {
+    const { toHighlightBounds } = await import('./highlightBounds')
+    const box = toHighlightBounds({ left: 75, top: 132, width: 300, height: 21.6 }, 'sentence')
+    // Top has 2px padding: 132 - 2 = 130
+    expect(box.top).toBe(130)
+    // Height has 2px top and 2px bottom padding: 21.6 + 4 = 25.6
+    expect(box.height).toBe(25.6)
   })
 
   it('splits multi-word item so words span the entire scaled item width', () => {
