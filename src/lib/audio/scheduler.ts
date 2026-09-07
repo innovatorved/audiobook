@@ -1,4 +1,5 @@
 import type { WordPosition } from '@/lib/types'
+import { trimPcmSilence } from '@/lib/audio/trimSilence'
 
 export interface ScheduledSentence {
   sentenceIndex: number
@@ -69,11 +70,14 @@ export class AudioScheduler {
   }
 
   async enqueueAudio(
-    pcm: Float32Array,
+    rawPcm: Float32Array,
     sampleRate: number,
     meta: { sentenceIndex: number; words: WordPosition[] },
   ): Promise<{ startTime: number; duration: number }> {
     if (this.isPaused) return { startTime: 0, duration: 0 }
+
+    const pcm = trimPcmSilence(rawPcm, { sampleRate })
+    if (pcm.length === 0) return { startTime: 0, duration: 0 }
 
     await this.ensureContext()
     if (!this.ctx || !this.gainNode) return { startTime: 0, duration: 0 }

@@ -5,9 +5,9 @@ import { TextCleaner, basic_english_tokenize } from 'kitten-tts-js/src/text-clea
 import { TextPreprocessor } from 'kitten-tts-js/src/preprocess.js'
 import { phonemize } from '@/lib/tts/phonemizerLazy'
 import type * as OrtNamespace from 'onnxruntime-web/wasm'
+import { trimPcmSilence } from '@/lib/audio/trimSilence'
 
 const SAMPLE_RATE = 24000
-const AUDIO_TRIM = 5000
 const MAX_CHUNK_CHARS = 400
 
 const DEFAULT_VOICE_ALIASES: Record<string, string> = {
@@ -73,7 +73,10 @@ export class KittenTtsRuntime {
       offset += chunk.length
     }
 
-    return { data: combined, sampling_rate: SAMPLE_RATE }
+    return {
+      data: trimPcmSilence(combined, { sampleRate: SAMPLE_RATE }),
+      sampling_rate: SAMPLE_RATE,
+    }
   }
 
   private ensurePunctuation(text: string): string {
@@ -183,6 +186,6 @@ export class KittenTtsRuntime {
 
     const outputKey = Object.keys(results)[0]
     const audioData = results[outputKey].data as Float32Array
-    return audioData.slice(0, Math.max(0, audioData.length - AUDIO_TRIM))
+    return trimPcmSilence(audioData, { sampleRate: SAMPLE_RATE })
   }
 }

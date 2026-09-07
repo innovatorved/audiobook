@@ -397,27 +397,13 @@ export function ReaderPage() {
         userSeekInProgressRef.current = false
       }
 
-      if (streamingRef.current && !userSeekInProgressRef.current) {
-        const bufferedAhead = audioScheduler.getBufferedAheadSeconds()
-        if (bufferedAhead < 12) {
-          const upcoming = [
-            sentenceTexts[chunk.sentenceIndex + 1]?.trim(),
-            sentenceTexts[chunk.sentenceIndex + 2]?.trim(),
-          ].filter((text): text is string => Boolean(text))
-          if (upcoming.length > 0) {
-            prefetchSynth(upcoming)
-          }
-        }
-      }
-
       highlightSync.registerSentenceTiming(
         timingWords.length > 0 ? timingWords : sentenceWords,
         startTime,
         duration,
       )
-
     },
-    [sentences, words, sentenceTexts, prefetchSynth, setPlaying],
+    [sentences, words, setPlaying],
   )
 
   const startBrowserSpeech = useCallback(

@@ -20,8 +20,8 @@ import { usePlayerStore, type ModelLoadPhase, type ModelLoadStatus } from '@/sto
 import { toast } from 'sonner'
 
 const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
-const FIRST_STREAM_WINDOW = 1
-const CONTINUE_STREAM_WINDOW = 4
+const FIRST_STREAM_WINDOW = 8
+const CONTINUE_STREAM_WINDOW = 8
 const ENGINE_BYTES = 58 * 1024 * 1024
 const DOWNLOAD_WATCHDOG_MS = 180_000
 const COMPILE_WATCHDOG_MS = 120_000
@@ -257,11 +257,43 @@ async function runStreamWindow(): Promise<void> {
   }
 
   const endIndex = Math.min(nextIndex + windowSize, chunks.length)
-  const windowChunks = chunks.slice(nextIndex, endIndex)
   const epoch = streamEpoch
   let index = nextIndex
 
-  for await (const chunk of engine.stream(windowChunks, {
+  // Yield any consecutive cached chunks immediately
+  while (index < endIndex) {
+    const text = chunks[index]?.trim() ?? ''
+    const key = text ? synthCacheKey(voice, speed, text) : ''
+    const cached = key ? synthCache.get(key) : undefined
+    if (!cached) break
+
+    if (epoch !== streamEpoch || acceptedStreamId !== streamId) return
+
+    await Promise.resolve(
+      onChunkRef?.({
+        text: cached.text,
+        pcm: cached.pcm,
+        sampleRate: cached.sampleRate,
+        sentenceIndex: index,
+      }),
+    )
+    index++
+  }
+
+  if (index >= endIndex || epoch !== streamEpoch || acceptedStreamId !== streamId) {
+    if (epoch !== streamEpoch || acceptedStreamId !== streamId || !streamContext) return
+    streamContext.nextIndex = index
+    streamContext.windowSize = CONTINUE_STREAM_WINDOW
+    if (streamContext.nextIndex < streamContext.chunks.length) {
+      enqueueStreamWindow()
+    } else {
+      streamContext = null
+    }
+    return
+  }
+
+  const remainingChunks = chunks.slice(index, endIndex)
+  for await (const chunk of engine.stream(remainingChunks, {
     voice,
     speed,
     shouldAbort: () => epoch !== streamEpoch || acceptedStreamId !== streamId,

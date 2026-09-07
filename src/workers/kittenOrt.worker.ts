@@ -68,8 +68,9 @@ type ErrorOutMessage = {
 }
 
 let tts: KittenTtsRuntime | null = null
-let activeGenerateId: number | null = null
 let abortRequested = false
+const generateQueue: GenerateMessage[] = []
+let isProcessingQueue = false
 
 function postProgress(
   loaded: number,
@@ -128,7 +129,7 @@ function configureOrt(wasmBase: string, ortWasmBuffer?: ArrayBuffer): void {
 async function handleLoad(msg: LoadMessage): Promise<void> {
   tts = null
   abortRequested = false
-  activeGenerateId = null
+  generateQueue.length = 0
 
   postProgress(ESTIMATED_BYTES * 0.4, ESTIMATED_BYTES, 'downloading', 'ort-init')
   configureOrt(msg.wasmBase, msg.ortWasmBuffer)
@@ -158,46 +159,60 @@ async function handleLoad(msg: LoadMessage): Promise<void> {
   self.postMessage(loadedMsg)
 }
 
-async function handleGenerate(msg: GenerateMessage): Promise<void> {
-  if (!tts) {
-    postError('Kitten TTS not loaded', msg.id, 'generate')
-    return
-  }
+function processGenerateQueue(): void {
+  if (isProcessingQueue) return
+  isProcessingQueue = true
 
-  activeGenerateId = msg.id
-  abortRequested = false
+  void (async () => {
+    while (generateQueue.length > 0) {
+      const msg = generateQueue.shift()!
 
-  try {
-    const audio = await tts.generate(msg.text, {
-      voice: msg.voice,
-      speed: msg.speed,
-      shouldAbort: () => abortRequested || activeGenerateId !== msg.id,
-    })
+      if (abortRequested) {
+        const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
+        self.postMessage(doneMsg)
+        continue
+      }
 
-    if (abortRequested || activeGenerateId !== msg.id) {
-      const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
-      self.postMessage(doneMsg)
-      return
+      if (!tts) {
+        postError('Kitten TTS not loaded', msg.id, 'generate')
+        continue
+      }
+
+      try {
+        const audio = await tts.generate(msg.text, {
+          voice: msg.voice,
+          speed: msg.speed,
+          shouldAbort: () => abortRequested,
+        })
+
+        if (abortRequested) {
+          const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
+          self.postMessage(doneMsg)
+          continue
+        }
+
+        const chunkMsg: ChunkOutMessage = {
+          type: 'chunk',
+          id: msg.id,
+          text: msg.text,
+          pcm: audio.data,
+          sampleRate: audio.sampling_rate,
+        }
+        self.postMessage(chunkMsg, [audio.data.buffer])
+        const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
+        self.postMessage(doneMsg)
+      } catch (err) {
+        if (abortRequested) {
+          const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
+          self.postMessage(doneMsg)
+          continue
+        }
+        postError(err instanceof Error ? err.message : 'Generation failed', msg.id, 'generate')
+      }
     }
 
-    const chunkMsg: ChunkOutMessage = {
-      type: 'chunk',
-      id: msg.id,
-      text: msg.text,
-      pcm: audio.data,
-      sampleRate: audio.sampling_rate,
-    }
-    self.postMessage(chunkMsg, [audio.data.buffer])
-    const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
-    self.postMessage(doneMsg)
-  } catch (err) {
-    if (abortRequested || activeGenerateId !== msg.id) {
-      const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
-      self.postMessage(doneMsg)
-      return
-    }
-    postError(err instanceof Error ? err.message : 'Generation failed', msg.id, 'generate')
-  }
+    isProcessingQueue = false
+  })()
 }
 
 self.onerror = (event) => {
@@ -216,25 +231,27 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
   const msg = event.data
   if (msg.type === 'abort') {
     abortRequested = true
-    activeGenerateId = null
+    while (generateQueue.length > 0) {
+      const item = generateQueue.shift()!
+      const doneMsg: DoneOutMessage = { type: 'done', id: item.id }
+      self.postMessage(doneMsg)
+    }
     return
   }
 
-  void (async () => {
-    try {
-      if (msg.type === 'load') {
-        await handleLoad(msg)
-      } else if (msg.type === 'generate') {
-        await handleGenerate(msg)
-      }
-    } catch (err) {
-      const stage: ErrorOutMessage['stage'] =
-        msg.type === 'generate' ? 'generate' : 'compiling'
-      postError(
-        err instanceof Error ? err.message : 'Worker error',
-        msg.type === 'generate' ? msg.id : undefined,
-        stage,
-      )
+  if (msg.type === 'load') {
+    void handleLoad(msg).catch((err) => {
+      postError(err instanceof Error ? err.message : 'Worker load error', undefined, 'compiling')
+    })
+    return
+  }
+
+  if (msg.type === 'generate') {
+    if (!isProcessingQueue && generateQueue.length === 0) {
+      abortRequested = false
     }
-  })()
+    generateQueue.push(msg)
+    processGenerateQueue()
+    return
+  }
 }
