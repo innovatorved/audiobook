@@ -6,25 +6,30 @@ import { clampWordWidths } from '@/lib/pdf/clampWordWidths'
 import { sortWordsByReadingOrder } from '@/lib/pdf/sortWords'
 
 /**
- * PDF.js canonical text-item bounds (see mozilla/pdf.js#12031, #8655).
- * item.width / item.height are already in device space — do NOT rescale.
+ * Compute viewport/canvas text-item bounds from PDF.js TextItem.
+ * item.width and item.height are in PDF user points (1/72 inch) and must be
+ * scaled by viewport.scale to match the rendered canvas coordinate space.
  */
-function getTextItemBounds(
+export function getTextItemBounds(
   item: { str: string; transform: number[]; width: number; height: number },
   viewport: ReturnType<PDFPageProxy['getViewport']>,
 ): { left: number; top: number; width: number; height: number } {
   const tx = Util.transform(viewport.transform, item.transform)
+  const scale = viewport.scale
+  const width = item.width * scale
+  const rawHeight = item.height > 0 ? item.height * scale : Math.hypot(tx[2], tx[3])
+  const height = rawHeight > 0 ? rawHeight : 16 * scale
 
   return {
     left: tx[4],
-    top: tx[5] - item.height,
-    width: item.width,
-    height: item.height,
+    top: tx[5] - height,
+    width,
+    height,
   }
 }
 
 /** Split multi-word PDF items proportionally within the item's native width. */
-function splitItemIntoWords(
+export function splitItemIntoWords(
   str: string,
   itemLeft: number,
   itemTop: number,
