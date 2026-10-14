@@ -364,11 +364,12 @@ export class KittenEngine implements TtsEngine {
           this.dispose()
         }
         try {
+          const needsClone = attempt === 0 && !this.mainThreadMode
           await this.loadOnce(
             onProgress,
             {
-              modelBuffer: preload.modelBuffer.slice(0),
-              voicesBuffer: preload.voicesBuffer.slice(0),
+              modelBuffer: needsClone ? preload.modelBuffer.slice(0) : preload.modelBuffer,
+              voicesBuffer: needsClone ? preload.voicesBuffer.slice(0) : preload.voicesBuffer,
               config: preload.config,
             },
             opts,

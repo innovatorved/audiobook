@@ -81,9 +81,6 @@ function sentenceHighlightRight(
   pageLine: WordPosition[],
   sentOnLineFromPage: WordPosition[],
   sentOnLineFromSentence: WordPosition[],
-  pageWords: WordPosition[],
-  bandTop: number,
-  bandBottom: number,
   sentenceIndex: number,
 ): number {
   let right = 0
@@ -98,16 +95,9 @@ function sentenceHighlightRight(
     right = Math.max(right, sentenceRight)
   }
 
-  const clickLines = mergePageWordsIntoClickLines(pageWords)
-  for (const clickLine of clickLines) {
-    const lineMidY = clickLine.top + clickLine.height / 2
-    if (Math.abs(lineMidY - (bandTop + bandBottom) / 2) > LINE_TOLERANCE + 6) continue
-
-    const lineWords = pageWords.filter((w) => overlapsVerticalBand(w, bandTop, bandBottom))
-    if (!lineWords.some((w) => w.sentenceIndex === sentenceIndex)) continue
-    if (lineWords.every((w) => w.sentenceIndex === sentenceIndex)) {
-      right = Math.max(right, clickLine.left + clickLine.width)
-    }
+  if (pageLine.length > 0 && pageLine.every((w) => w.sentenceIndex === sentenceIndex)) {
+    const fullLineRight = Math.max(...pageLine.map((_, i) => wordRightEdge(pageLine, i)))
+    right = Math.max(right, fullLineRight)
   }
 
   return right + HIGHLIGHT_SENTENCE_RIGHT_EXTEND_PX
@@ -233,9 +223,6 @@ export function mergeSentenceHighlightRects(
       pageLine,
       sentOnLineFromPage,
       sentOnLineFromSentence,
-      pageWords,
-      bandTop,
-      bandBottom,
       sentenceIndex,
     )
 

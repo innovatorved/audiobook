@@ -1,6 +1,7 @@
 import { loadNpz } from '@/lib/tts/npzLoader'
 import { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
 import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
+import { preloadPhonemizer } from '@/lib/tts/phonemizerLazy'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
 import type { InferenceSession } from 'onnxruntime-web/wasm'
 
@@ -137,7 +138,7 @@ export async function loadKittenOnMainThread(
   onStage?.('voices')
   onProgress(ESTIMATED_BYTES * 0.85, ESTIMATED_BYTES, 'downloading')
 
-  const voices = await loadNpz(voicesBuffer)
+  const [voices] = await Promise.all([loadNpz(voicesBuffer), preloadPhonemizer()])
   assertNotAborted(shouldAbort)
   const runtime = new KittenTtsRuntime(session, voices, config, ort)
 

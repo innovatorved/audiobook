@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { PDFPageProxy } from 'pdfjs-dist'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WordHighlight } from '@/components/pdf/WordHighlight'
@@ -37,7 +37,7 @@ function isOnCanvas(
   )
 }
 
-export function PdfPage({
+export const PdfPage = memo(function PdfPage({
   page,
   pageNum,
   activeWord,
@@ -178,7 +178,7 @@ export function PdfPage({
   return (
     <div className="relative mx-auto mb-12" data-page={pageNum}>
       <div
-        className={`reader-page relative mx-auto overflow-x-visible overflow-y-hidden rounded-xl transition-smooth ${onLineClick ? 'cursor-pointer hover:brightness-[1.01]' : ''}`}
+        className={`reader-page relative mx-auto select-none overflow-x-visible overflow-y-hidden rounded-xl transition-smooth [-webkit-tap-highlight-color:transparent] ${onLineClick ? 'cursor-pointer hover:brightness-[1.01]' : ''}`}
         style={pageStyle}
         onClick={onLineClick ? handlePageClick : undefined}
         onTouchStart={onLineTouchStart ? handlePageTouchStart : undefined}
@@ -242,4 +242,4 @@ export function PdfPage({
       </p>
     </div>
   )
-}
+})

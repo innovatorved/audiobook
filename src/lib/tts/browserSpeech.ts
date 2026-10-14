@@ -1,3 +1,5 @@
+import { estimateWordSpeechWeight } from '@/lib/audio/highlightSync'
+import { sliceWordsByGlobalRange } from '@/lib/audio/streamText'
 import type { SentenceInfo, VoiceInfo, WordPosition } from '@/lib/types'
 import { usePlayerStore } from '@/stores/playerStore'
 
@@ -19,6 +21,10 @@ type BrowserSpeechOptions = {
 
 let voicesReadyPromise: Promise<SpeechSynthesisVoice[]> | null = null
 let browserVoicesCached: VoiceInfo[] = []
+
+function isAndroidBrowser(): boolean {
+  return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+}
 
 export function browserTtsSupported(): boolean {
   return typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window
@@ -123,12 +129,11 @@ function sentenceWordsFor(
   startWordIndex?: number,
 ): WordPosition[] {
   if (!sentence) return []
-  return words.filter(
-    (word) =>
-      word.globalIndex >= sentence.startWordIndex &&
-      word.globalIndex <= sentence.endWordIndex &&
-      (startWordIndex === undefined || word.globalIndex >= startWordIndex),
-  )
+  const start =
+    startWordIndex !== undefined
+      ? Math.max(sentence.startWordIndex, startWordIndex)
+      : sentence.startWordIndex
+  return sliceWordsByGlobalRange(words, start, sentence.endWordIndex)
 }
 
 function wordForBoundary(sentenceWords: WordPosition[], charIndex: number): WordPosition | undefined {
@@ -142,11 +147,42 @@ function wordForBoundary(sentenceWords: WordPosition[], charIndex: number): Word
   return sentenceWords[sentenceWords.length - 1]
 }
 
+function buildSyntheticWordSchedule(
+  sentenceWords: WordPosition[],
+  rate: number,
+): number[] {
+  if (sentenceWords.length === 0) return []
+  const safeRate = Math.max(0.25, rate)
+  // Average spoken cadence at 1.0x is ~105ms per speech-weight unit
+  const msPerWeightUnit = 105 / safeRate
+  const offsetsMs: number[] = []
+  let cumulativeMs = 0
+  for (let i = 0; i < sentenceWords.length; i++) {
+    offsetsMs.push(cumulativeMs)
+    const weight = estimateWordSpeechWeight(
+      sentenceWords[i].text,
+      i === sentenceWords.length - 1,
+    )
+    cumulativeMs += weight * msPerWeightUnit
+  }
+  return offsetsMs
+}
+
 class BrowserSpeechController {
   private options: BrowserSpeechOptions | null = null
   private currentIndex = 0
   private cancelled = false
   private paused = false
+  private activeUtterance: SpeechSynthesisUtterance | null = null
+  private syntheticTimer: ReturnType<typeof setInterval> | null = null
+  private lastWordIndex: number | undefined = undefined
+
+  private clearSyntheticTimer(): void {
+    if (this.syntheticTimer !== null) {
+      clearInterval(this.syntheticTimer)
+      this.syntheticTimer = null
+    }
+  }
 
   play(options: BrowserSpeechOptions): void {
     this.cancel()
@@ -156,30 +192,46 @@ class BrowserSpeechController {
     }
     this.options = options
     this.currentIndex = Math.max(0, Math.min(options.startIndex, options.sentenceTexts.length - 1))
+    this.lastWordIndex = options.startWordIndex
     this.cancelled = false
     this.paused = false
-    this.speakCurrent()
+    this.speakCurrent(options.startWordIndex)
   }
 
   pause(): void {
     if (!browserTtsSupported()) return
     this.paused = true
-    window.speechSynthesis.pause()
+    this.clearSyntheticTimer()
+    if (isAndroidBrowser()) {
+      // Android Chrome speechSynthesis.pause() is a no-op / wedges the queue; cancel and resume from lastWordIndex
+      this.activeUtterance = null
+      window.speechSynthesis.cancel()
+    } else {
+      window.speechSynthesis.pause()
+    }
   }
 
   resume(): void {
     if (!browserTtsSupported()) return
+    const wasPaused = this.paused
     this.paused = false
-    window.speechSynthesis.resume()
+    if (isAndroidBrowser() || (wasPaused && !window.speechSynthesis.speaking)) {
+      this.speakCurrent(this.lastWordIndex)
+    } else {
+      window.speechSynthesis.resume()
+    }
   }
 
   cancel(): void {
     this.cancelled = true
     this.paused = false
+    this.activeUtterance = null
+    this.clearSyntheticTimer()
     if (browserTtsSupported()) window.speechSynthesis.cancel()
   }
 
-  private speakCurrent(): void {
+  private speakCurrent(resumeFromWordIndex?: number): void {
+    this.clearSyntheticTimer()
     const options = this.options
     if (!options || this.cancelled) return
     if (this.currentIndex >= options.sentenceTexts.length) {
@@ -187,50 +239,106 @@ class BrowserSpeechController {
       return
     }
 
-    const text = options.sentenceTexts[this.currentIndex]?.trim()
+    const sentence = options.sentences[this.currentIndex]
+    const sentenceWords = sentenceWordsFor(sentence, options.words, resumeFromWordIndex)
+    const text =
+      resumeFromWordIndex !== undefined && sentenceWords.length > 0
+        ? sentenceWords.map((w) => w.text).join(' ')
+        : options.sentenceTexts[this.currentIndex]?.trim()
+
     if (!text) {
       this.currentIndex++
+      this.lastWordIndex = undefined
       this.speakCurrent()
       return
     }
 
-    const sentence = options.sentences[this.currentIndex]
-    const sentenceWords = sentenceWordsFor(
-      sentence,
-      options.words,
-      this.currentIndex === options.startIndex ? options.startWordIndex : undefined,
-    )
     const firstWord = sentenceWords[0]
     if (firstWord) {
+      this.lastWordIndex = firstWord.globalIndex
       options.onSentence(this.currentIndex, firstWord.globalIndex, firstWord.pageNum)
     } else if (sentence) {
+      this.lastWordIndex = sentence.startWordIndex
       options.onSentence(this.currentIndex, sentence.startWordIndex, sentence.pageNum)
     }
 
+    const rate = Math.max(0.1, Math.min(options.speed, 3))
     const utterance = new SpeechSynthesisUtterance(text)
     const voice = findSpeechVoice(options.voice)
     if (voice) utterance.voice = voice
-    utterance.rate = Math.max(0.1, Math.min(options.speed, 3))
+    utterance.rate = rate
     utterance.volume = Math.max(0, Math.min(options.volume, 1))
+    this.activeUtterance = utterance
+
+    let nativeBoundaryFired = false
+    const scheduleMs = buildSyntheticWordSchedule(sentenceWords, rate)
+    let spokenStartTime = 0
+    let lastSyntheticIdx = 0
+
+    const startSyntheticProgress = () => {
+      if (this.syntheticTimer !== null || nativeBoundaryFired || sentenceWords.length <= 1) return
+      spokenStartTime = performance.now()
+      this.syntheticTimer = setInterval(() => {
+        if (this.cancelled || this.paused || nativeBoundaryFired || this.activeUtterance !== utterance) {
+          return
+        }
+        const elapsed = performance.now() - spokenStartTime
+        let nextIdx = lastSyntheticIdx
+        while (
+          nextIdx + 1 < scheduleMs.length &&
+          elapsed >= scheduleMs[nextIdx + 1]
+        ) {
+          nextIdx++
+        }
+        if (nextIdx !== lastSyntheticIdx) {
+          lastSyntheticIdx = nextIdx
+          const word = sentenceWords[nextIdx]
+          if (word) {
+            this.lastWordIndex = word.globalIndex
+            options.onWord(word.globalIndex, word.pageNum)
+          }
+        }
+      }, 45)
+    }
+
+    utterance.onstart = () => {
+      if (this.cancelled || this.activeUtterance !== utterance) return
+      startSyntheticProgress()
+    }
 
     utterance.onboundary = (event) => {
-      if (this.cancelled || event.name !== 'word') return
+      if (this.cancelled || this.activeUtterance !== utterance || event.name !== 'word') return
+      nativeBoundaryFired = true
+      this.clearSyntheticTimer()
       const word = wordForBoundary(sentenceWords, event.charIndex)
-      if (word) options.onWord(word.globalIndex, word.pageNum)
+      if (word) {
+        this.lastWordIndex = word.globalIndex
+        options.onWord(word.globalIndex, word.pageNum)
+      }
     }
 
     utterance.onerror = (event) => {
-      if (this.cancelled) return
+      if (this.cancelled || this.paused || this.activeUtterance !== utterance) return
+      if (event.error === 'canceled' || event.error === 'interrupted') return
+      this.clearSyntheticTimer()
       usePlayerStore.getState().setModelError(`Browser voice failed: ${event.error}`)
     }
 
     utterance.onend = () => {
-      if (this.cancelled || this.paused) return
+      if (this.cancelled || this.paused || this.activeUtterance !== utterance) return
+      this.clearSyntheticTimer()
       this.currentIndex++
+      this.lastWordIndex = undefined
       this.speakCurrent()
     }
 
     window.speechSynthesis.speak(utterance)
+    // Fallback if onstart is delayed or not emitted on some mobile WebViews
+    setTimeout(() => {
+      if (!this.cancelled && !this.paused && this.activeUtterance === utterance) {
+        startSyntheticProgress()
+      }
+    }, 120)
   }
 }
 

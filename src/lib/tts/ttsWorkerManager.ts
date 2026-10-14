@@ -16,12 +16,15 @@ import {
   areBrowserVoicesWarmed,
   browserTtsSupported,
 } from '@/lib/tts/browserSpeech'
+import { audioScheduler } from '@/lib/audio/scheduler'
 import { usePlayerStore, type ModelLoadPhase, type ModelLoadStatus } from '@/stores/playerStore'
 import { toast } from 'sonner'
 
 const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
-const FIRST_STREAM_WINDOW = 8
-const CONTINUE_STREAM_WINDOW = 8
+const FIRST_STREAM_WINDOW = 6
+const CONTINUE_STREAM_WINDOW = 6
+const MAX_BUFFERED_AHEAD_SEC = 10
+const RESUME_BUFFER_THRESHOLD_SEC = 7
 const ENGINE_BYTES = 58 * 1024 * 1024
 const DOWNLOAD_WATCHDOG_MS = 180_000
 const COMPILE_WATCHDOG_MS = 120_000
@@ -248,6 +251,23 @@ function runWarmup(): void {
   })()
 }
 
+async function waitForBufferHeadroom(epoch: number, streamId: number): Promise<boolean> {
+  // Always yield at least one animation frame between sentences so UI/highlight stays smooth
+  await new Promise((resolve) => setTimeout(resolve, 16))
+  if (epoch !== streamEpoch || acceptedStreamId !== streamId) return false
+
+  if (audioScheduler.getBufferedAheadSeconds() > MAX_BUFFERED_AHEAD_SEC) {
+    while (
+      audioScheduler.getBufferedAheadSeconds() > RESUME_BUFFER_THRESHOLD_SEC &&
+      epoch === streamEpoch &&
+      acceptedStreamId === streamId
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 120))
+    }
+  }
+  return epoch === streamEpoch && acceptedStreamId === streamId
+}
+
 async function runStreamWindow(): Promise<void> {
   if (!streamContext || !engine) return
   const { chunks, voice, speed, nextIndex, streamId, windowSize } = streamContext
@@ -292,28 +312,55 @@ async function runStreamWindow(): Promise<void> {
     return
   }
 
-  const remainingChunks = chunks.slice(index, endIndex)
-  for await (const chunk of engine.stream(remainingChunks, {
-    voice,
-    speed,
-    shouldAbort: () => epoch !== streamEpoch || acceptedStreamId !== streamId,
-  })) {
+  while (index < endIndex) {
     if (epoch !== streamEpoch || acceptedStreamId !== streamId) break
+    if (index > nextIndex || audioScheduler.getBufferedAheadSeconds() > 0.5) {
+      const canContinue = await waitForBufferHeadroom(epoch, streamId)
+      if (!canContinue) break
+    }
 
-    rememberSynthChunk(voice, speed, chunk.text, {
-      text: chunk.text,
-      pcm: chunk.pcm,
-      sampleRate: chunk.sampleRate,
-    })
+    const sentenceText = chunks[index]
+    if (!sentenceText?.trim()) {
+      index++
+      continue
+    }
 
-    await Promise.resolve(
-      onChunkRef?.({
+    const cached = synthCache.get(synthCacheKey(voice, speed, sentenceText.trim()))
+    if (cached) {
+      await Promise.resolve(
+        onChunkRef?.({
+          text: cached.text,
+          pcm: cached.pcm,
+          sampleRate: cached.sampleRate,
+          sentenceIndex: index,
+        }),
+      )
+      index++
+      continue
+    }
+
+    for await (const chunk of engine.stream([sentenceText], {
+      voice,
+      speed,
+      shouldAbort: () => epoch !== streamEpoch || acceptedStreamId !== streamId,
+    })) {
+      if (epoch !== streamEpoch || acceptedStreamId !== streamId) break
+
+      rememberSynthChunk(voice, speed, chunk.text, {
         text: chunk.text,
         pcm: chunk.pcm,
         sampleRate: chunk.sampleRate,
-        sentenceIndex: index,
-      }),
-    )
+      })
+
+      await Promise.resolve(
+        onChunkRef?.({
+          text: chunk.text,
+          pcm: chunk.pcm,
+          sampleRate: chunk.sampleRate,
+          sentenceIndex: index,
+        }),
+      )
+    }
     index++
   }
 
@@ -348,7 +395,7 @@ function enqueuePrefetch(text: string, voice: string, speed: number): void {
   const myEpoch = ++prefetchEpoch
   prefetchTail = prefetchTail
     .then(async () => {
-      if (!engine || !loaded) {
+      if (!engine || !loaded || acceptedStreamId !== -1) {
         prefetchInFlight.delete(key)
         return
       }
@@ -361,9 +408,16 @@ function enqueuePrefetch(text: string, voice: string, speed: number): void {
         for await (const chunk of engine.stream([text], {
           voice,
           speed,
-          shouldAbort: () => streamEpoch !== epochAtStart || myEpoch !== prefetchEpoch,
+          shouldAbort: () =>
+            acceptedStreamId !== -1 || streamEpoch !== epochAtStart || myEpoch !== prefetchEpoch,
         })) {
-          if (streamEpoch !== epochAtStart || myEpoch !== prefetchEpoch) break
+          if (
+            acceptedStreamId !== -1 ||
+            streamEpoch !== epochAtStart ||
+            myEpoch !== prefetchEpoch
+          ) {
+            break
+          }
           rememberSynthChunk(voice, speed, chunk.text, {
             text: chunk.text,
             pcm: chunk.pcm,
@@ -488,6 +542,7 @@ async function startLoad(preload: KittenPreload, generation: number): Promise<vo
   if (generation !== loadGeneration) return
 
   clearLoadWatchdog()
+  kittenPreload = null
   loaded = true
   loading = false
   loadInFlight = false

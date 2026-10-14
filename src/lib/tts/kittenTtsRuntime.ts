@@ -23,6 +23,9 @@ const DEFAULT_VOICE_ALIASES: Record<string, string> = {
 
 export type KittenVoiceMap = Record<string, { data: Float32Array; shape: number[] }>
 
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0))
+
 export class KittenTtsRuntime {
   private readonly ort: typeof OrtNamespace
   private readonly cleaner = new TextCleaner()
@@ -58,11 +61,25 @@ export class KittenTtsRuntime {
     const chunks = this.chunkText(text)
     const audioChunks: Float32Array[] = []
 
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
       if (shouldAbort?.()) break
-      const inputs = await this.prepareInputs(chunk, voice, speed, clean)
+      if (i > 0) await yieldToEventLoop()
+      const inputs = await this.prepareInputs(chunks[i], voice, speed, clean)
+      if (shouldAbort?.()) break
+      await yieldToEventLoop()
       if (shouldAbort?.()) break
       audioChunks.push(await this.runInference(inputs))
+    }
+
+    if (audioChunks.length === 0) {
+      return { data: new Float32Array(0), sampling_rate: SAMPLE_RATE }
+    }
+
+    if (audioChunks.length === 1) {
+      return {
+        data: audioChunks[0],
+        sampling_rate: SAMPLE_RATE,
+      }
     }
 
     const totalLen = audioChunks.reduce((sum, chunk) => sum + chunk.length, 0)
@@ -74,7 +91,7 @@ export class KittenTtsRuntime {
     }
 
     return {
-      data: trimPcmSilence(combined, { sampleRate: SAMPLE_RATE }),
+      data: combined,
       sampling_rate: SAMPLE_RATE,
     }
   }

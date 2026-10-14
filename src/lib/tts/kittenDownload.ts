@@ -1,6 +1,8 @@
 import type { KittenManifest } from '@/lib/tts/kittenModelCache'
 
 const MODEL_BASE = '/kitten-model'
+const PART_CHUNK_SIZE = 8 * 1024 * 1024
+const PART_DOWNLOAD_CONCURRENCY = 3
 
 export type KittenDownloadProgress = {
   loaded: number
@@ -10,8 +12,10 @@ export type KittenDownloadProgress = {
 
 type FileMeta = { size: number; parts: number }
 
-async function fetchBuffer(
+async function fetchIntoTarget(
   url: string,
+  target: Uint8Array | null,
+  targetOffset: number,
   onBytes: (delta: number) => void,
 ): Promise<ArrayBuffer> {
   const resp = await fetch(url, { cache: 'force-cache' })
@@ -19,9 +23,42 @@ async function fetchBuffer(
   if (!resp.body) {
     const buf = await resp.arrayBuffer()
     onBytes(buf.byteLength)
+    if (target) {
+      target.set(new Uint8Array(buf), targetOffset)
+      return target.buffer as ArrayBuffer
+    }
     return buf
   }
+
   const reader = resp.body.getReader()
+  if (target) {
+    let offset = targetOffset
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      target.set(value, offset)
+      offset += value.byteLength
+      onBytes(value.byteLength)
+    }
+    return target.buffer as ArrayBuffer
+  }
+
+  const contentLength = Number(resp.headers.get('content-length') ?? 0)
+  if (contentLength > 0) {
+    const out = new Uint8Array(contentLength)
+    let offset = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (offset + value.byteLength <= out.byteLength) {
+        out.set(value, offset)
+      }
+      offset += value.byteLength
+      onBytes(value.byteLength)
+    }
+    return offset === out.byteLength ? out.buffer : out.buffer.slice(0, offset)
+  }
+
   const chunks: Uint8Array[] = []
   let total = 0
   while (true) {
@@ -66,20 +103,23 @@ async function fetchFile(
 ): Promise<ArrayBuffer> {
   const urls = fileUrls(filename, meta)
   if (urls.length === 1) {
-    return fetchBuffer(urls[0], onBytes)
+    return fetchIntoTarget(urls[0], new Uint8Array(meta.size), 0, onBytes)
   }
-  const buffers: ArrayBuffer[] = []
-  for (const url of urls) {
-    buffers.push(await fetchBuffer(url, onBytes))
-    await yieldToMain()
-  }
+
   const combined = new Uint8Array(meta.size)
-  let offset = 0
-  for (const buf of buffers) {
-    combined.set(new Uint8Array(buf), offset)
-    offset += buf.byteLength
-    await yieldToMain()
+  let nextPart = 0
+
+  const worker = async () => {
+    while (nextPart < urls.length) {
+      const partIdx = nextPart++
+      const offset = partIdx * PART_CHUNK_SIZE
+      await fetchIntoTarget(urls[partIdx], combined, offset, onBytes)
+      await yieldToMain()
+    }
   }
+
+  const concurrency = Math.min(PART_DOWNLOAD_CONCURRENCY, urls.length)
+  await Promise.all(Array.from({ length: concurrency }, () => worker()))
   return combined.buffer
 }
 
@@ -144,28 +184,7 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Preload manifest + model parts so download starts before app JS boots. */
+/** Kept as a no-op; prepareKittenInBackground() checks IndexedDB cache first before fetching parts. */
 export function preloadKittenModelAssets(): void {
-  if (typeof document === 'undefined') return
-  const hints = [
-    '/kitten-model/manifest.json',
-    '/ort/ort-wasm-simd-threaded.wasm',
-    '/ort/ort-wasm-simd-threaded.mjs',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part0',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part1',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part2',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part3',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part4',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part5',
-    '/kitten-model/kitten_tts_micro_v0_8.ort.part6',
-  ]
-  for (const href of hints) {
-    if (document.querySelector(`link[rel="preload"][href="${href}"]`)) continue
-    const link = document.createElement('link')
-    link.rel = 'preload'
-    link.href = href
-    link.as = 'fetch'
-    link.crossOrigin = 'anonymous'
-    document.head.appendChild(link)
-  }
+  // No-op: avoids downloading 68 MB via <link rel="preload"> when already cached in IndexedDB.
 }

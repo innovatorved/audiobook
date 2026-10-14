@@ -11,6 +11,8 @@ function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+const PUNCTUATION_PATTERN = new RegExp(`(\\s*[${escapeRegExp(PUNCTUATION)}]+\\s*)+`, 'g')
+
 function splitPreserve(text: string, regex: RegExp): Array<{ isPunct: boolean; text: string }> {
   const result: Array<{ isPunct: boolean; text: string }> = []
   let prev = 0
@@ -77,13 +79,17 @@ async function getBestLanguageIdentifier(): Promise<string> {
   return resolvedLang
 }
 
+/** Pre-warm eSpeak phonemizer WASM and voice list during model load. */
+export async function preloadPhonemizer(): Promise<void> {
+  await getBestLanguageIdentifier()
+}
+
 /** Lazy-load eSpeak phonemizer (~1.3 MiB) only when synthesis runs. */
 export async function phonemize(text: string): Promise<string> {
   try {
     const { phonemize: espeakng } = await loadPhonemizer()
     const targetLang = await getBestLanguageIdentifier()
-    const punctuationPattern = new RegExp(`(\\s*[${escapeRegExp(PUNCTUATION)}]+\\s*)+`, 'g')
-    const chunks = splitPreserve(text, punctuationPattern)
+    const chunks = splitPreserve(text, PUNCTUATION_PATTERN)
 
     let processed = ''
     for (const chunk of chunks) {

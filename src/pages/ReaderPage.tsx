@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PdfScrollerHandle } from '@/components/pdf/PdfScroller'
 import { useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -24,7 +24,11 @@ import {
 import { audioScheduler } from '@/lib/audio/scheduler'
 import { highlightSync } from '@/lib/audio/highlightSync'
 import { MAX_PLAYBACK_SPEED, MIN_PLAYBACK_SPEED, clampPlaybackSpeed } from '@/lib/audio/speed'
-import { streamTextForSeek } from '@/lib/audio/streamText'
+import {
+  getWordByGlobalIndex,
+  sliceWordsByGlobalRange,
+  streamTextForSeek,
+} from '@/lib/audio/streamText'
 import { useReaderStore } from '@/stores/readerStore'
 import { usePlayerStore } from '@/stores/playerStore'
 import { useTtsWorker } from '@/hooks/useTtsWorker'
@@ -36,11 +40,11 @@ import { useReadingProgress } from '@/hooks/useReadingProgress'
 import type { SentenceInfo, WordPosition } from '@/lib/types'
 
 function sentenceIndexFromWord(
-  words: { globalIndex: number; sentenceIndex: number }[],
+  words: WordPosition[],
   wordIndex: number,
   fallback: number,
 ): number {
-  const word = words.find((w) => w.globalIndex === wordIndex)
+  const word = getWordByGlobalIndex(words, wordIndex)
   return word?.sentenceIndex ?? fallback
 }
 
@@ -123,29 +127,52 @@ export function ReaderPage() {
   const { prefetchAround, ocrPage } = useOcrPrefetch()
   const { persist, restoreProgress } = useReadingProgress()
 
-  const activeWord = words.find((w) => w.globalIndex === activeWordIndex) ?? null
+  const wordsByPage = useMemo(() => {
+    const map = new Map<number, WordPosition[]>()
+    for (const w of words) {
+      let arr = map.get(w.pageNum)
+      if (!arr) {
+        arr = []
+        map.set(w.pageNum, arr)
+      }
+      arr.push(w)
+    }
+    return map
+  }, [words])
+
+  const activeWord = useMemo(
+    () => getWordByGlobalIndex(words, activeWordIndex) ?? null,
+    [words, activeWordIndex],
+  )
 
   const currentSentence = sentences[currentSentenceIndex]
-  const activeSentence =
-    currentSentence ??
-    (activeWordIndex >= 0
-      ? sentences.find(
-          (s) =>
-            activeWordIndex >= s.startWordIndex && activeWordIndex <= s.endWordIndex,
-        )
-      : undefined) ??
-    null
-  const activeSentenceWords = activeSentence
-    ? words.filter(
-        (w) =>
-          w.globalIndex >= activeSentence.startWordIndex &&
-          w.globalIndex <= activeSentence.endWordIndex,
-      )
-    : []
+  const activeSentence = useMemo(
+    () =>
+      currentSentence ??
+      (activeWordIndex >= 0
+        ? sentences.find(
+            (s) =>
+              activeWordIndex >= s.startWordIndex && activeWordIndex <= s.endWordIndex,
+          )
+        : undefined) ??
+      null,
+    [currentSentence, activeWordIndex, sentences],
+  )
+  const activeSentenceWords = useMemo(
+    () =>
+      activeSentence
+        ? sliceWordsByGlobalRange(
+            words,
+            activeSentence.startWordIndex,
+            activeSentence.endWordIndex,
+          )
+        : [],
+    [activeSentence, words],
+  )
 
   const applySavedProgress = useCallback(
     (progress: { wordIndex: number; pageNum: number; sentenceIndex: number }) => {
-      const targetWord = words.find((w) => w.globalIndex === progress.wordIndex)
+      const targetWord = getWordByGlobalIndex(words, progress.wordIndex)
       if (!targetWord) return
 
       setSentenceIndex(targetWord.sentenceIndex)
@@ -335,7 +362,9 @@ export function ReaderPage() {
   useEffect(() => {
     audioScheduler.onSentenceScheduled((sentence) => {
       if (userSeekInProgressRef.current) return
-      setSentenceIndex(sentence.sentenceIndex)
+      if (usePlayerStore.getState().activeWordIndex < 0) {
+        setSentenceIndex(sentence.sentenceIndex)
+      }
     })
   }, [setSentenceIndex])
 
@@ -363,11 +392,7 @@ export function ReaderPage() {
 
       const sentence = sentences[chunk.sentenceIndex]
       const sentenceWords = sentence
-        ? words.filter(
-            (w) =>
-              w.globalIndex >= sentence.startWordIndex &&
-              w.globalIndex <= sentence.endWordIndex,
-          )
+        ? sliceWordsByGlobalRange(words, sentence.startWordIndex, sentence.endWordIndex)
         : []
 
       const sliceFrom = streamStartWordRef.current
@@ -395,6 +420,12 @@ export function ReaderPage() {
 
       if (userSeekInProgressRef.current) {
         userSeekInProgressRef.current = false
+      }
+
+      const ctx = audioScheduler.getContext()
+      if (ctx) {
+        highlightSync.setContext(ctx)
+        highlightSync.setBaseOffset(audioScheduler.getTimelineBase())
       }
 
       highlightSync.registerSentenceTiming(
@@ -448,7 +479,7 @@ export function ReaderPage() {
   const beginStream = useCallback(
     async (fromIndex: number, fromWordIndex?: number) => {
       if (sentenceTexts.length === 0) return
-      const { text: seekText } = streamTextForSeek(
+      const { text: seekText, fromWordIndex: sliceFrom } = streamTextForSeek(
         sentences,
         words,
         sentenceTexts,
@@ -457,43 +488,34 @@ export function ReaderPage() {
       )
       streamGenRef.current = playbackGenRef.current
       streamStartWordRef.current =
-        fromWordIndex !== undefined ? { sentenceIndex: fromIndex, wordIndex: fromWordIndex } : null
+        fromWordIndex !== undefined && sliceFrom !== undefined
+          ? { sentenceIndex: fromIndex, wordIndex: fromWordIndex }
+          : null
       streamingRef.current = true
       audioScheduler.clear()
       audioScheduler.beginScheduling()
       highlightSync.clear()
       setSentenceIndex(fromIndex)
 
-      const ctx = audioScheduler.getContext()
-      if (ctx) {
-        highlightSync.setContext(ctx)
-        highlightSync.setBaseOffset(audioScheduler.getTimelineBase())
-      }
-
-      highlightSync.onWord((wordIndex, pageNum) => {
+      highlightSync.onWord((wordIndex, pageNum, sentenceIndex) => {
         if (streamGenRef.current !== playbackGenRef.current) return
         setActiveWord(wordIndex, pageNum)
-        setSentenceIndex(sentenceIndexFromWord(words, wordIndex, fromIndex))
+        setSentenceIndex(sentenceIndex)
       })
-
-      const { fromWordIndex: sliceFrom } = streamTextForSeek(
-        sentences,
-        words,
-        sentenceTexts,
-        fromIndex,
-        fromWordIndex,
-      )
-      if (fromWordIndex !== undefined && sliceFrom === undefined) {
-        streamStartWordRef.current = null
-      }
 
       enableContinuousPrefetch(true)
       const streamTexts = [...sentenceTexts]
       if (seekText) streamTexts[fromIndex] = seekText
-      await Promise.all([
-        audioScheduler.play(),
-        startStream(streamTexts, fromIndex, handleAudioChunk),
-      ])
+
+      await audioScheduler.play()
+      const ctx = audioScheduler.getContext()
+      if (ctx) {
+        highlightSync.setContext(ctx)
+        highlightSync.setBaseOffset(audioScheduler.getTimelineBase())
+        highlightSync.start()
+      }
+
+      await startStream(streamTexts, fromIndex, handleAudioChunk)
     },
     [
       sentenceTexts,
@@ -554,7 +576,8 @@ export function ReaderPage() {
 
       playbackGenRef.current++
       const gen = playbackGenRef.current
-      const clickedWord = wordIndex !== undefined ? words.find((w) => w.globalIndex === wordIndex) : null
+      const clickedWord =
+        wordIndex !== undefined ? (getWordByGlobalIndex(words, wordIndex) ?? null) : null
       const clamped = Math.max(
         0,
         Math.min(clickedWord?.sentenceIndex ?? index, sentenceTexts.length - 1),
@@ -804,13 +827,13 @@ export function ReaderPage() {
   useEffect(() => {
     const pending = pendingPageClickRef.current
     if (!pending) return
-    const pageWords = words.filter((w) => w.pageNum === pending.pageNum)
+    const pageWords = wordsByPage.get(pending.pageNum) ?? []
     if (pageWords.length === 0) return
     const word = findClickTargetAtPoint(pageWords, pending.x, pending.y)
     if (!word) return
     pendingPageClickRef.current = null
     scheduleSeek(word.sentenceIndex, true, word.globalIndex)
-  }, [words, scheduleSeek])
+  }, [wordsByPage, scheduleSeek])
 
   const handleSeek = useCallback(
     (index: number) => {
@@ -829,7 +852,7 @@ export function ReaderPage() {
   }, [activePageNum, visiblePage, resetFollowHighlight])
 
 
-  const visiblePageWordCount = words.filter((w) => w.pageNum === visiblePage).length
+  const visiblePageWordCount = (wordsByPage.get(visiblePage) ?? []).length
   const playbackPage = activePageNum > 0 ? activePageNum : 0
   const scrolledPastPlayback = playbackPage > 0 && visiblePage > playbackPage
   const onEmptyPageAhead =

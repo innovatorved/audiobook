@@ -1,9 +1,13 @@
 import { LINE_TOLERANCE } from '@/lib/pdf/constants'
 
 const WORD_GAP = 2
-const MAX_EXPAND_SLACK_RATIO = 1.5
+const MAX_EXPAND_SLACK_RATIO = 0.35
 
 type WordLike = { left: number; top: number; width: number; height: number; text?: string }
+
+function lineCenterY(word: WordLike): number {
+  return word.top + word.height / 2
+}
 
 function clampLineWordWidths(line: WordLike[]): void {
   line.sort((a, b) => a.left - b.left)
@@ -32,23 +36,24 @@ export function clampWordWidths<T extends WordLike>(words: T[]): T[] {
   if (words.length === 0) return words
 
   const sorted = [...words].sort((a, b) => {
-    const topDiff = a.top - b.top
-    if (Math.abs(topDiff) > LINE_TOLERANCE) return topDiff
+    const centerDiff = lineCenterY(a) - lineCenterY(b)
+    if (Math.abs(centerDiff) > LINE_TOLERANCE) return centerDiff
     return a.left - b.left
   })
 
   const lines: T[][] = []
   let currentLine: T[] = []
-  let lineTop = sorted[0].top
+  let lineCenter = lineCenterY(sorted[0])
 
   for (const word of sorted) {
-    if (currentLine.length === 0 || Math.abs(word.top - lineTop) <= LINE_TOLERANCE) {
+    const center = lineCenterY(word)
+    if (currentLine.length === 0 || Math.abs(center - lineCenter) <= LINE_TOLERANCE) {
       currentLine.push(word)
-      if (currentLine.length === 1) lineTop = word.top
+      if (currentLine.length === 1) lineCenter = center
     } else {
       lines.push(currentLine)
       currentLine = [word]
-      lineTop = word.top
+      lineCenter = center
     }
   }
   if (currentLine.length > 0) lines.push(currentLine)

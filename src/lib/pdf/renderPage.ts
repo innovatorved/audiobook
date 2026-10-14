@@ -2,9 +2,12 @@ import type { PDFPageProxy } from 'pdfjs-dist'
 import { PDF_RENDER_SCALE } from '@/lib/pdf/constants'
 
 export const PDF_DISPLAY_DPR_CAP = 2.5
+export const PDF_MOBILE_DPR_CAP = 1.5
 
 export function getPdfDisplayDpr(): number {
-  return Math.min(window.devicePixelRatio || 1, PDF_DISPLAY_DPR_CAP)
+  const isMobileViewport = typeof window !== 'undefined' && window.innerWidth > 0 && window.innerWidth < 768
+  const cap = isMobileViewport ? PDF_MOBILE_DPR_CAP : PDF_DISPLAY_DPR_CAP
+  return Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, cap)
 }
 
 export function getPdfLogicalViewport(page: PDFPageProxy) {

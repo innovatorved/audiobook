@@ -90,7 +90,11 @@ export class AudioScheduler {
     source.playbackRate.value = this.playbackRate
     source.connect(this.gainNode)
 
+    const isFirstChunk = this.scheduledSentences.length === 0 && this.pausedAt === 0
     const startTime = Math.max(this.nextStartTime, this.ctx.currentTime)
+    if (isFirstChunk) {
+      this.baseTime = startTime
+    }
     const duration = buffer.duration / this.playbackRate
 
     source.start(startTime)
@@ -99,7 +103,7 @@ export class AudioScheduler {
 
     const scheduled: ScheduledSentence = {
       sentenceIndex: meta.sentenceIndex,
-      startTime: startTime - this.baseTime,
+      startTime: Math.max(0, startTime - this.baseTime),
       duration,
       words: meta.words,
     }
@@ -132,7 +136,7 @@ export class AudioScheduler {
       for (const s of this.scheduledSentences) {
         if (s.startTime >= offset) break
       }
-    } else if (this.nextStartTime === 0) {
+    } else if (this.nextStartTime === 0 || this.scheduledSentences.length === 0) {
       this.baseTime = ctx.currentTime
       this.nextStartTime = ctx.currentTime
     }

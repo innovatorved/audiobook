@@ -3,52 +3,59 @@ import type { SentenceInfo, WordPosition } from '@/lib/types'
 
 type RawWord = Omit<WordPosition, 'globalIndex' | 'sentenceIndex'>
 
-function normalizeToken(text: string): string {
-  return text.replace(/[^\w]/g, '').toLowerCase()
-}
-
 function mapPageWords(
   rawWords: RawWord[],
   startGlobalIndex: number,
   startSentenceIndex: number,
-): { words: WordPosition[]; sentences: SentenceInfo[]; nextGlobalIndex: number } {
-  const fullText = rawWords.map((w) => w.text).join(' ')
+): { words: WordPosition[]; sentences: SentenceInfo[]; nextGlobalIndex: number; pageText: string } {
+  if (rawWords.length === 0) {
+    return { words: [], sentences: [], nextGlobalIndex: startGlobalIndex, pageText: '' }
+  }
+
+  const wordCharStarts = new Array<number>(rawWords.length)
+  let charOffset = 0
+  const parts = new Array<string>(rawWords.length)
+  for (let i = 0; i < rawWords.length; i++) {
+    wordCharStarts[i] = charOffset
+    const text = rawWords[i].text
+    parts[i] = text
+    charOffset += text.length + 1
+  }
+
+  const fullText = parts.join(' ')
   const sentenceTexts = extractSentences(fullText)
 
   const words: WordPosition[] = []
   const sentences: SentenceInfo[] = []
   let wordCursor = 0
   let globalIndex = startGlobalIndex
+  let searchCharOffset = 0
+  const pageNum = rawWords[0]?.pageNum ?? 1
 
   for (let i = 0; i < sentenceTexts.length; i++) {
     const sentenceText = sentenceTexts[i]
-    const sentenceTokens = sentenceText.split(/\s+/).filter(Boolean)
+    if (!sentenceText) continue
+
+    const foundAt = fullText.indexOf(sentenceText, searchCharOffset)
+    const sentEndChar =
+      foundAt >= 0 ? foundAt + sentenceText.length : searchCharOffset + sentenceText.length
+    searchCharOffset = sentEndChar
+
     const startWordIndex = globalIndex
     const sentenceIndex = startSentenceIndex + sentences.length
     const matchedWords: WordPosition[] = []
 
-    for (const sw of sentenceTokens) {
-      const target = normalizeToken(sw)
-      if (!target) continue
-
-      let matched = false
-      while (wordCursor < rawWords.length) {
-        const raw = rawWords[wordCursor]
-        wordCursor++
-        if (normalizeToken(raw.text) === target) {
-          const word: WordPosition = {
-            ...raw,
-            globalIndex,
-            sentenceIndex,
-          }
-          words.push(word)
-          matchedWords.push(word)
-          globalIndex++
-          matched = true
-          break
-        }
+    while (wordCursor < rawWords.length && wordCharStarts[wordCursor] < sentEndChar) {
+      const raw = rawWords[wordCursor]
+      const word: WordPosition = {
+        ...raw,
+        globalIndex,
+        sentenceIndex,
       }
-      if (!matched) break
+      words.push(word)
+      matchedWords.push(word)
+      globalIndex++
+      wordCursor++
     }
 
     if (matchedWords.length > 0) {
@@ -56,36 +63,47 @@ function mapPageWords(
         text: matchedWords.map((w) => w.text).join(' '),
         startWordIndex,
         endWordIndex: globalIndex - 1,
-        pageNum: rawWords[0]?.pageNum ?? 1,
+        pageNum,
       })
     }
   }
 
-  while (wordCursor < rawWords.length) {
-    const raw = rawWords[wordCursor]
+  if (wordCursor < rawWords.length) {
+    const fallbackStartWordIndex = globalIndex
     const sentenceIndex =
       sentences.length > 0
         ? startSentenceIndex + sentences.length - 1
         : startSentenceIndex
-    words.push({
-      ...raw,
-      globalIndex,
-      sentenceIndex,
-    })
-    globalIndex++
-    wordCursor++
+    const trailingWords: WordPosition[] = []
+
+    while (wordCursor < rawWords.length) {
+      const raw = rawWords[wordCursor]
+      const word: WordPosition = {
+        ...raw,
+        globalIndex,
+        sentenceIndex,
+      }
+      words.push(word)
+      trailingWords.push(word)
+      globalIndex++
+      wordCursor++
+    }
+
+    if (sentences.length > 0) {
+      const lastSent = sentences[sentences.length - 1]
+      lastSent.endWordIndex = globalIndex - 1
+      lastSent.text = `${lastSent.text} ${trailingWords.map((w) => w.text).join(' ')}`.trim()
+    } else {
+      sentences.push({
+        text: fullText,
+        startWordIndex: fallbackStartWordIndex,
+        endWordIndex: globalIndex - 1,
+        pageNum,
+      })
+    }
   }
 
-  if (sentences.length === 0 && words.length > 0) {
-    sentences.push({
-      text: fullText,
-      startWordIndex: startGlobalIndex,
-      endWordIndex: globalIndex - 1,
-      pageNum: rawWords[0]?.pageNum ?? 1,
-    })
-  }
-
-  return { words, sentences, nextGlobalIndex: globalIndex }
+  return { words, sentences, nextGlobalIndex: globalIndex, pageText: fullText }
 }
 
 export function buildWordMap(
@@ -95,7 +113,17 @@ export function buildWordMap(
     return { words: [], sentences: [], fullText: '' }
   }
 
-  const pageNums = [...new Set(rawWords.map((w) => w.pageNum))].sort((a, b) => a - b)
+  const byPage = new Map<number, RawWord[]>()
+  for (const w of rawWords) {
+    let list = byPage.get(w.pageNum)
+    if (!list) {
+      list = []
+      byPage.set(w.pageNum, list)
+    }
+    list.push(w)
+  }
+
+  const pageNums = [...byPage.keys()].sort((a, b) => a - b)
   const words: WordPosition[] = []
   const sentences: SentenceInfo[] = []
   const fullTextParts: string[] = []
@@ -103,20 +131,15 @@ export function buildWordMap(
   let sentenceIndex = 0
 
   for (const pageNum of pageNums) {
-    const pageRaw = rawWords.filter((w) => w.pageNum === pageNum)
+    const pageRaw = byPage.get(pageNum)
+    if (!pageRaw || pageRaw.length === 0) continue
     const pageResult = mapPageWords(pageRaw, globalIndex, sentenceIndex)
-    words.push(...pageResult.words)
-    for (const sentence of pageResult.sentences) {
-      sentences.push({
-        ...sentence,
-        startWordIndex: sentence.startWordIndex,
-        endWordIndex: sentence.endWordIndex,
-      })
-    }
+    for (const w of pageResult.words) words.push(w)
+    for (const s of pageResult.sentences) sentences.push(s)
     globalIndex = pageResult.nextGlobalIndex
     sentenceIndex += pageResult.sentences.length
-    if (pageRaw.length > 0) {
-      fullTextParts.push(pageRaw.map((w) => w.text).join(' '))
+    if (pageResult.pageText) {
+      fullTextParts.push(pageResult.pageText)
     }
   }
 

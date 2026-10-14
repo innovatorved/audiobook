@@ -3,12 +3,27 @@ import type { WordPosition } from '@/lib/types'
 
 export interface WordTiming {
   wordIndex: number
+  sentenceIndex: number
   startTime: number
   endTime: number
   pageNum: number
 }
 
-type WordCallback = (wordIndex: number, pageNum: number) => void
+type WordCallback = (wordIndex: number, pageNum: number, sentenceIndex: number) => void
+
+export function estimateWordSpeechWeight(text: string, isLastInSentence: boolean): number {
+  const cleanLen = text.replace(/[^\w]/g, '').length
+  // Spoken word duration has a fixed articulation onset plus sub-linear character scaling
+  let weight = 1.6 + Math.pow(Math.max(1, cleanLen), 0.75)
+  if (!isLastInSentence) {
+    if (/[,;:—–-]$/.test(text)) {
+      weight += 2.2
+    } else if (/[.!?]$/.test(text)) {
+      weight += 3.0
+    }
+  }
+  return weight
+}
 
 export class HighlightSync {
   private timings: WordTiming[] = []
@@ -33,19 +48,34 @@ export class HighlightSync {
     startTime: number,
     duration: number,
   ): void {
-    const totalChars = words.reduce((sum, w) => sum + w.text.length, 0) || 1
+    if (words.length === 0 || duration <= 0) return
+
+    const weights = words.map((w, idx) =>
+      estimateWordSpeechWeight(w.text, idx === words.length - 1),
+    )
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0) || 1
 
     let cursor = startTime
-    for (const word of words) {
-      const weight = word.text.length / totalChars
-      const wordDuration = duration * weight
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i]
+      const wordDuration = duration * (weights[i] / totalWeight)
       this.timings.push({
         wordIndex: word.globalIndex,
+        sentenceIndex: word.sentenceIndex,
         startTime: cursor,
         endTime: cursor + wordDuration,
         pageNum: word.pageNum,
       })
       cursor += wordDuration
+    }
+
+    // If playback loop is already running (or waiting for the first chunk), sync immediately
+    if (!this.isPaused && this.lastWordIndex === -1 && this.timings.length > 0) {
+      const currentTime = audioScheduler.getCurrentTime()
+      const timing = this.findTimingAt(currentTime) ?? this.timings[0]
+      if (timing) {
+        this.fireWord(timing.wordIndex, timing.pageNum, timing.sentenceIndex)
+      }
     }
   }
 
@@ -59,7 +89,7 @@ export class HighlightSync {
     this.pausedAt = time
     const timing = this.findTimingAt(time)
     if (timing) {
-      this.fireWord(timing.wordIndex, timing.pageNum)
+      this.fireWord(timing.wordIndex, timing.pageNum, timing.sentenceIndex)
     }
   }
 
@@ -67,17 +97,24 @@ export class HighlightSync {
     const timing = this.timings.find((t) => t.wordIndex === wordIndex)
     if (timing) {
       this.pausedAt = timing.startTime
-      this.fireWord(timing.wordIndex, timing.pageNum)
+      this.fireWord(timing.wordIndex, timing.pageNum, timing.sentenceIndex)
     }
   }
 
   start(): void {
     this.isPaused = false
+    const currentTime = audioScheduler.getCurrentTime()
+    const timing = this.findTimingAt(currentTime)
+    if (timing) {
+      this.fireWord(timing.wordIndex, timing.pageNum, timing.sentenceIndex)
+    }
     this.startLoop()
   }
 
   pause(): void {
-    if (this.ctx && !this.isPaused) {
+    if (!this.isPaused) {
+      this.pausedAt = audioScheduler.getCurrentTime()
+    } else if (this.ctx) {
       this.pausedAt = this.ctx.currentTime - this.baseOffset
     }
     this.isPaused = true
@@ -106,17 +143,29 @@ export class HighlightSync {
   }
 
   private findTimingAt(time: number): WordTiming | undefined {
-    for (let i = this.timings.length - 1; i >= 0; i--) {
-      const t = this.timings[i]
-      if (time >= t.startTime && time < t.endTime) return t
+    const len = this.timings.length
+    if (len === 0) return undefined
+
+    let lo = 0
+    let hi = len - 1
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1
+      const t = this.timings[mid]
+      if (time < t.startTime) {
+        hi = mid - 1
+      } else if (time >= t.endTime) {
+        lo = mid + 1
+      } else {
+        return t
+      }
     }
     return undefined
   }
 
-  private fireWord(wordIndex: number, pageNum: number): void {
+  private fireWord(wordIndex: number, pageNum: number, sentenceIndex: number): void {
     if (wordIndex !== this.lastWordIndex) {
       this.lastWordIndex = wordIndex
-      this.onWordChange?.(wordIndex, pageNum)
+      this.onWordChange?.(wordIndex, pageNum, sentenceIndex)
     }
   }
 
@@ -128,7 +177,7 @@ export class HighlightSync {
         const currentTime = audioScheduler.getCurrentTime()
         const timing = this.findTimingAt(currentTime)
         if (timing) {
-          this.fireWord(timing.wordIndex, timing.pageNum)
+          this.fireWord(timing.wordIndex, timing.pageNum, timing.sentenceIndex)
         }
       }
       this.rafId = requestAnimationFrame(tick)

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { Ref, RefObject } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
@@ -34,6 +42,7 @@ interface PdfScrollerProps {
 
 const PAGE_CHROME = 56
 const FALLBACK_PAGE_HEIGHT = 900
+const EMPTY_WORDS: WordPosition[] = []
 
 export function PdfScroller({
   pdfDoc,
@@ -59,11 +68,13 @@ export function PdfScroller({
   const columnRef = useRef<HTMLDivElement>(null)
   const pageCache = useRef<Map<number, Awaited<ReturnType<PDFDocumentProxy['getPage']>>>>(new Map())
   const nativePageSizesRef = useRef<Map<number, { width: number; height: number }>>(new Map())
+  const defaultNativeSizeRef = useRef<{ width: number; height: number } | null>(null)
   const userScrolledRef = useRef(false)
   const programmaticScrollUntilRef = useRef(0)
   const followScrollingRef = useRef(false)
   const lastAutoScrollTopRef = useRef(0)
   const autoPageScrollUntilRef = useRef(0)
+  const activeScrollTargetRef = useRef<number | null>(null)
   const touchStartYRef = useRef(0)
   const lastFollowedPageRef = useRef(-1)
   const followRafRef = useRef<number | null>(null)
@@ -76,6 +87,19 @@ export function PdfScroller({
   const [heightEstimatesReady, setHeightEstimatesReady] = useState(false)
   const [columnWidth, setColumnWidth] = useState(0)
 
+  const wordsByPage = useMemo(() => {
+    const map = new Map<number, WordPosition[]>()
+    for (const w of words) {
+      let arr = map.get(w.pageNum)
+      if (!arr) {
+        arr = []
+        map.set(w.pageNum, arr)
+      }
+      arr.push(w)
+    }
+    return map
+  }, [words])
+
   useEffect(() => {
     activeWordRef.current = activeWord
   }, [activeWord])
@@ -86,6 +110,9 @@ export function PdfScroller({
 
   useEffect(() => {
     followHighlightRef.current = followHighlight
+    if (followHighlight && parentRef.current) {
+      lastAutoScrollTopRef.current = parentRef.current.scrollTop
+    }
   }, [followHighlight])
 
   useEffect(() => {
@@ -93,6 +120,9 @@ export function PdfScroller({
   }, [columnWidth])
 
   const markProgrammaticScroll = useCallback((durationMs = 400) => {
+    if (parentRef.current) {
+      lastAutoScrollTopRef.current = parentRef.current.scrollTop
+    }
     programmaticScrollUntilRef.current = Math.max(
       programmaticScrollUntilRef.current,
       Date.now() + durationMs,
@@ -111,6 +141,7 @@ export function PdfScroller({
 
   const markAutoPageScroll = useCallback((durationMs = 450) => {
     autoPageScrollUntilRef.current = Date.now() + durationMs
+    activeScrollTargetRef.current = null
   }, [])
 
   useLayoutEffect(() => {
@@ -130,20 +161,24 @@ export function PdfScroller({
 
   useEffect(() => {
     let cancelled = false
+    pageCache.current.clear()
     nativePageSizesRef.current.clear()
+    defaultNativeSizeRef.current = null
     setHeightEstimatesReady(false)
 
     void (async () => {
-      for (let i = 1; i <= totalPages; i++) {
-        if (cancelled) return
-        const page = await pdfDoc.getPage(i)
-        const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
-        nativePageSizesRef.current.set(i, {
-          width: viewport.width,
-          height: viewport.height,
-        })
+      if (totalPages < 1) {
+        if (!cancelled) setHeightEstimatesReady(true)
+        return
       }
-      if (!cancelled) setHeightEstimatesReady(true)
+      const firstPage = await pdfDoc.getPage(1)
+      if (cancelled) return
+      pageCache.current.set(1, firstPage)
+      const firstViewport = firstPage.getViewport({ scale: PDF_RENDER_SCALE })
+      const firstSize = { width: firstViewport.width, height: firstViewport.height }
+      nativePageSizesRef.current.set(1, firstSize)
+      defaultNativeSizeRef.current = firstSize
+      setHeightEstimatesReady(true)
     })()
 
     return () => {
@@ -153,7 +188,7 @@ export function PdfScroller({
 
   const estimateSize = useCallback(
     (index: number) => {
-      const native = nativePageSizesRef.current.get(index + 1)
+      const native = nativePageSizesRef.current.get(index + 1) ?? defaultNativeSizeRef.current
       if (!native || columnWidth <= 0) return FALLBACK_PAGE_HEIGHT
       const scale = Math.min(1, columnWidth / native.width)
       return native.height * scale + PAGE_CHROME
@@ -167,7 +202,7 @@ export function PdfScroller({
     count: totalPages,
     getScrollElement: () => parentRef.current,
     estimateSize,
-    overscan: followHighlight ? 4 : 2,
+    overscan: followHighlight ? 3 : 2,
   })
 
   useEffect(() => {
@@ -176,11 +211,19 @@ export function PdfScroller({
 
   const getPage = useCallback(
     async (pageNum: number) => {
-      if (pageCache.current.has(pageNum)) {
-        return pageCache.current.get(pageNum)!
+      const cached = pageCache.current.get(pageNum)
+      if (cached) {
+        return cached
       }
       const page = await pdfDoc.getPage(pageNum)
       pageCache.current.set(pageNum, page)
+      if (!nativePageSizesRef.current.has(pageNum)) {
+        const viewport = page.getViewport({ scale: PDF_RENDER_SCALE })
+        nativePageSizesRef.current.set(pageNum, {
+          width: viewport.width,
+          height: viewport.height,
+        })
+      }
       return page
     },
     [pdfDoc],
@@ -189,12 +232,19 @@ export function PdfScroller({
   useEffect(() => {
     userScrolledRef.current = false
     lastFollowedPageRef.current = -1
+    activeScrollTargetRef.current = null
+    if (parentRef.current) {
+      lastAutoScrollTopRef.current = parentRef.current.scrollTop
+    }
   }, [resetFollowKey])
 
-  const computeWordScrollTarget = useCallback(
-    (word: WordPosition, scrollEl: HTMLElement): number | null => {
+  const computeWordViewportPosition = useCallback(
+    (
+      word: WordPosition,
+      scrollEl: HTMLElement,
+    ): { wordTop: number; wordBottom: number; idealScrollTop: number } | null => {
       const width = columnWidthRef.current
-      const native = nativePageSizesRef.current.get(word.pageNum)
+      const native = nativePageSizesRef.current.get(word.pageNum) ?? defaultNativeSizeRef.current
       if (!native || width <= 0) return null
 
       const pageItem = virtualizer
@@ -204,7 +254,9 @@ export function PdfScroller({
 
       const scale = Math.min(1, width / native.width)
       const wordTop = pageItem.start + word.top * scale
-      return Math.max(0, wordTop - scrollEl.clientHeight * 0.38)
+      const wordBottom = wordTop + word.height * scale
+      const idealScrollTop = Math.max(0, wordTop - scrollEl.clientHeight * 0.34)
+      return { wordTop, wordBottom, idealScrollTop }
     },
     [virtualizer],
   )
@@ -230,6 +282,7 @@ export function PdfScroller({
         cancelAnimationFrame(followRafRef.current)
         followRafRef.current = null
       }
+      activeScrollTargetRef.current = null
       return
     }
 
@@ -252,24 +305,51 @@ export function PdfScroller({
       const followPage = word.pageNum > 0 ? word.pageNum : activePageNumRef.current
       if (followPage > 0 && followPage !== lastFollowedPageRef.current) {
         lastFollowedPageRef.current = followPage
-        markAutoPageScroll(prefersReducedMotion() ? 200 : 500)
-        virtualizer.scrollToIndex(followPage - 1, {
-          align: 'start',
-          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-        })
+        if (!isPageInView(followPage)) {
+          markAutoPageScroll(prefersReducedMotion() ? 200 : 500)
+          virtualizer.scrollToIndex(followPage - 1, {
+            align: 'start',
+            behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+          })
+          followRafRef.current = requestAnimationFrame(tick)
+          return
+        }
       }
 
-      const target = computeWordScrollTarget(word, scrollEl)
-      if (target !== null) {
-        const diff = target - scrollEl.scrollTop
-        if (Math.abs(diff) > 0.5) {
-          if (prefersReducedMotion()) {
-            scrollEl.scrollTop = target
+      if (Date.now() < autoPageScrollUntilRef.current) {
+        followRafRef.current = requestAnimationFrame(tick)
+        return
+      }
+
+      const pos = computeWordViewportPosition(word, scrollEl)
+      if (pos !== null) {
+        const viewTop = scrollEl.scrollTop
+        const viewHeight = scrollEl.clientHeight
+        const relTop = pos.wordTop - viewTop
+        const relBottom = pos.wordBottom - viewTop
+
+        const comfortTop = viewHeight * 0.18
+        const comfortBottom = viewHeight * 0.68
+
+        if (relTop < comfortTop || relBottom > comfortBottom) {
+          activeScrollTargetRef.current = pos.idealScrollTop
+        }
+
+        const target = activeScrollTargetRef.current
+        if (target !== null) {
+          const diff = target - scrollEl.scrollTop
+          if (Math.abs(diff) <= 3) {
+            activeScrollTargetRef.current = null
           } else {
-            const step = Math.abs(diff) > 240 ? 0.14 : 0.09
-            scrollEl.scrollTop += diff * step
+            if (prefersReducedMotion()) {
+              scrollEl.scrollTop = target
+              activeScrollTargetRef.current = null
+            } else {
+              const step = Math.abs(diff) > 220 ? 0.14 : 0.1
+              scrollEl.scrollTop += diff * step
+            }
+            markAutoScrollPosition(scrollEl.scrollTop)
           }
-          markAutoScrollPosition(scrollEl.scrollTop)
         }
       } else if (followPage > 0 && !isPageInView(followPage)) {
         markAutoPageScroll(500)
@@ -295,7 +375,7 @@ export function PdfScroller({
     virtualizer,
     markAutoScrollPosition,
     markAutoPageScroll,
-    computeWordScrollTarget,
+    computeWordViewportPosition,
     isPageInView,
   ])
 
@@ -314,6 +394,7 @@ export function PdfScroller({
     if (!followHighlightRef.current || userScrolledRef.current) return
     if (suppressUserNavigateRef?.current === true) return
     if (followScrollingRef.current) return
+    if (Date.now() < programmaticScrollUntilRef.current) return
     if (Date.now() < autoPageScrollUntilRef.current) return
 
     const el = parentRef.current
@@ -404,32 +485,39 @@ export function PdfScroller({
         className="relative mx-auto w-full max-w-4xl"
         style={{ height: virtualizer.getTotalSize() }}
       >
-        {virtualItems.map((virtualItem) => (
-          <div
-            key={virtualItem.key}
-            data-index={virtualItem.index}
-            className="absolute left-0 w-full"
-            style={{
-              top: virtualItem.start,
-              height: virtualItem.size,
-            }}
-          >
-            <PdfPageWrapper
-              pageNum={virtualItem.index + 1}
-              getPage={getPage}
-              activeWord={activeWord}
-              activeSentenceWords={activeSentenceWords}
-              onLineClick={handleLineClick}
-              onLineTouchStart={onLineTouchStart}
-              onEmptyPageClick={onEmptyPageClick}
-              onReturnToPlayback={onReturnToPlayback}
-              playbackPageNum={playbackPageNum}
-              pageWords={words.filter((w) => w.pageNum === virtualItem.index + 1)}
-              maxWidth={columnWidth}
-              estimatedNativeSize={nativePageSizesRef.current.get(virtualItem.index + 1)}
-            />
-          </div>
-        ))}
+        {virtualItems.map((virtualItem) => {
+          const pageNum = virtualItem.index + 1
+          return (
+            <div
+              key={virtualItem.key}
+              data-index={virtualItem.index}
+              className="absolute left-0 w-full"
+              style={{
+                top: virtualItem.start,
+                height: virtualItem.size,
+              }}
+            >
+              <PdfPageWrapper
+                pageNum={pageNum}
+                getPage={getPage}
+                activeWord={activeWord?.pageNum === pageNum ? activeWord : null}
+                activeSentenceWords={activeSentenceWords}
+                onLineClick={handleLineClick}
+                onLineTouchStart={onLineTouchStart}
+                onEmptyPageClick={onEmptyPageClick}
+                onReturnToPlayback={onReturnToPlayback}
+                playbackPageNum={playbackPageNum}
+                pageWords={wordsByPage.get(pageNum) ?? EMPTY_WORDS}
+                maxWidth={columnWidth}
+                estimatedNativeSize={
+                  nativePageSizesRef.current.get(pageNum) ??
+                  defaultNativeSizeRef.current ??
+                  undefined
+                }
+              />
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -474,7 +562,11 @@ function PdfPageWrapper({
     }
   }, [pageNum, getPage])
 
-  const pageSentenceWords = activeSentenceWords.filter((w) => w.pageNum === pageNum)
+  const pageSentenceWords = useMemo(() => {
+    if (activeSentenceWords.length === 0) return EMPTY_WORDS
+    const filtered = activeSentenceWords.filter((w) => w.pageNum === pageNum)
+    return filtered.length > 0 ? filtered : EMPTY_WORDS
+  }, [activeSentenceWords, pageNum])
 
   return (
     <PdfPage

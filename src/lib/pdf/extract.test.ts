@@ -86,4 +86,61 @@ describe('PDF text extraction and highlight coverage', () => {
     // The right edge should cover all the way through the last word (260 + 140 = 400) + trailing extend
     expect(rects[0].left + rects[0].width).toBeGreaterThanOrEqual(400)
   })
+
+  it('buildWordMap preserves all words after standalone punctuation tokens like em-dashes', async () => {
+    const { buildWordMap } = await import('../pipeline/wordMap')
+    const rawWords = [
+      { text: 'Hello', pageNum: 1, left: 10, top: 20, width: 40, height: 14 },
+      { text: '—', pageNum: 1, left: 55, top: 20, width: 15, height: 14 },
+      { text: 'world', pageNum: 1, left: 75, top: 20, width: 45, height: 14 },
+      { text: 'today.', pageNum: 1, left: 125, top: 20, width: 45, height: 14 },
+      { text: 'Next', pageNum: 1, left: 180, top: 20, width: 35, height: 14 },
+      { text: 'sentence.', pageNum: 1, left: 220, top: 20, width: 65, height: 14 },
+    ]
+
+    const { words, sentences } = buildWordMap(rawWords)
+    expect(words.map((w) => w.text)).toEqual([
+      'Hello',
+      '—',
+      'world',
+      'today.',
+      'Next',
+      'sentence.',
+    ])
+    expect(sentences.length).toBe(2)
+    expect(sentences[0].startWordIndex).toBe(0)
+    expect(sentences[0].endWordIndex).toBe(3)
+    expect(sentences[1].startWordIndex).toBe(4)
+    expect(sentences[1].endWordIndex).toBe(5)
+  })
+
+  it('HighlightSync emits accurate word and sentenceIndex timings with seekToTime', async () => {
+    const { HighlightSync } = await import('../audio/highlightSync')
+    const sync = new HighlightSync()
+    const events: Array<{ wordIndex: number; pageNum: number; sentenceIndex: number }> = []
+    sync.onWord((wordIndex, pageNum, sentenceIndex) => {
+      events.push({ wordIndex, pageNum, sentenceIndex })
+    })
+
+    const s0Words: WordPosition[] = [
+      { text: 'Short', pageNum: 1, left: 10, top: 10, width: 30, height: 12, globalIndex: 0, sentenceIndex: 0 },
+      { text: 'sentence.', pageNum: 1, left: 45, top: 10, width: 60, height: 12, globalIndex: 1, sentenceIndex: 0 },
+    ]
+    const s1Words: WordPosition[] = [
+      { text: 'Second', pageNum: 2, left: 10, top: 10, width: 40, height: 12, globalIndex: 2, sentenceIndex: 1 },
+      { text: 'line.', pageNum: 2, left: 55, top: 10, width: 30, height: 12, globalIndex: 3, sentenceIndex: 1 },
+    ]
+
+    sync.registerSentenceTiming(s0Words, 0, 1.0)
+    sync.registerSentenceTiming(s1Words, 1.0, 1.0)
+
+    sync.seekToTime(0.05)
+    expect(events[events.length - 1]).toEqual({ wordIndex: 0, pageNum: 1, sentenceIndex: 0 })
+
+    sync.seekToTime(0.85)
+    expect(events[events.length - 1]).toEqual({ wordIndex: 1, pageNum: 1, sentenceIndex: 0 })
+
+    sync.seekToTime(1.1)
+    expect(events[events.length - 1]).toEqual({ wordIndex: 2, pageNum: 2, sentenceIndex: 1 })
+  })
 })
