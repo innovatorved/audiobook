@@ -15,7 +15,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "kitten-tts-js/src/*": ["./node_modules/kitten-tts-js/src/*"]
     },
     "noUnusedLocals": true,
     "noUnusedParameters": true,

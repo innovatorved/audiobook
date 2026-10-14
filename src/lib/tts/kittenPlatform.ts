@@ -9,12 +9,6 @@ export function shouldUseMainThreadOrt(): boolean {
   return true
 }
 
-/** Android prefers inline worker to avoid blob-URL COEP issues on Cloudflare Pages. */
-export function prefersInlineWorker(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return /Android/i.test(navigator.userAgent)
-}
-
 /** Multi-threaded ONNX Runtime Web requires cross-origin isolation (COOP + COEP) for SharedArrayBuffer. */
 export function isCrossOriginIsolated(): boolean {
   return (

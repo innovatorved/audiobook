@@ -21,10 +21,23 @@ import { usePlayerStore, type ModelLoadPhase, type ModelLoadStatus } from '@/sto
 import { toast } from 'sonner'
 
 const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
-const FIRST_STREAM_WINDOW = 6
-const CONTINUE_STREAM_WINDOW = 6
-const MAX_BUFFERED_AHEAD_SEC = 10
-const RESUME_BUFFER_THRESHOLD_SEC = 7
+
+function isConstrainedDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return true
+  const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+  if (typeof mem === 'number' && mem <= 4) return true
+  if (typeof navigator.hardwareConcurrency === 'number' && navigator.hardwareConcurrency <= 4) {
+    return true
+  }
+  return false
+}
+
+const CONSTRAINED_DEVICE = isConstrainedDevice()
+const FIRST_STREAM_WINDOW = CONSTRAINED_DEVICE ? 4 : 6
+const CONTINUE_STREAM_WINDOW = CONSTRAINED_DEVICE ? 4 : 6
+const MAX_BUFFERED_AHEAD_SEC = CONSTRAINED_DEVICE ? 6 : 10
+const RESUME_BUFFER_THRESHOLD_SEC = CONSTRAINED_DEVICE ? 4 : 7
 const ENGINE_BYTES = 58 * 1024 * 1024
 const DOWNLOAD_WATCHDOG_MS = 180_000
 const COMPILE_WATCHDOG_MS = 120_000
@@ -77,7 +90,7 @@ type CachedChunk = {
   sampleRate: number
 }
 
-const SYNTH_CACHE_MAX = 96
+const SYNTH_CACHE_MAX = CONSTRAINED_DEVICE ? 32 : 96
 const MAX_PREFETCH_IN_FLIGHT = 1
 let backgroundPrefetchEnabled = false
 const synthCache = new Map<string, CachedChunk>()
@@ -253,7 +266,7 @@ function runWarmup(): void {
 
 async function waitForBufferHeadroom(epoch: number, streamId: number): Promise<boolean> {
   // Always yield at least one animation frame between sentences so UI/highlight stays smooth
-  await new Promise((resolve) => setTimeout(resolve, 16))
+  await new Promise((resolve) => setTimeout(resolve, CONSTRAINED_DEVICE ? 24 : 16))
   if (epoch !== streamEpoch || acceptedStreamId !== streamId) return false
 
   if (audioScheduler.getBufferedAheadSeconds() > MAX_BUFFERED_AHEAD_SEC) {
@@ -339,27 +352,33 @@ async function runStreamWindow(): Promise<void> {
       continue
     }
 
-    for await (const chunk of engine.stream([sentenceText], {
-      voice,
-      speed,
-      shouldAbort: () => epoch !== streamEpoch || acceptedStreamId !== streamId,
-    })) {
-      if (epoch !== streamEpoch || acceptedStreamId !== streamId) break
+    try {
+      for await (const chunk of engine.stream([sentenceText], {
+        voice,
+        speed,
+        shouldAbort: () => epoch !== streamEpoch || acceptedStreamId !== streamId,
+      })) {
+        if (epoch !== streamEpoch || acceptedStreamId !== streamId) break
+        if (chunk.pcm.length === 0) continue
 
-      rememberSynthChunk(voice, speed, chunk.text, {
-        text: chunk.text,
-        pcm: chunk.pcm,
-        sampleRate: chunk.sampleRate,
-      })
-
-      await Promise.resolve(
-        onChunkRef?.({
+        rememberSynthChunk(voice, speed, chunk.text, {
           text: chunk.text,
           pcm: chunk.pcm,
           sampleRate: chunk.sampleRate,
-          sentenceIndex: index,
-        }),
-      )
+        })
+
+        await Promise.resolve(
+          onChunkRef?.({
+            text: chunk.text,
+            pcm: chunk.pcm,
+            sampleRate: chunk.sampleRate,
+            sentenceIndex: index,
+          }),
+        )
+      }
+    } catch (err) {
+      if (epoch !== streamEpoch || acceptedStreamId !== streamId) break
+      console.warn('[TTS] Skipping sentence after synthesis error:', err)
     }
     index++
   }
@@ -385,7 +404,7 @@ function enqueueStreamWindow(): void {
     ])
     if (epoch !== streamEpoch) return
     await runStreamWindow().catch((err) => {
-      applyError(err instanceof Error ? err.message : 'TTS stream error')
+      console.warn('[TTS] Stream window interrupted:', err)
     })
   })()
 }
@@ -821,6 +840,8 @@ export function warmSynthText(text: string): void {
 export function interruptPlaybackOnly(): void {
   acceptedStreamId = -1
   streamContext = null
+  streamEpoch++
+  engine?.abort()
 }
 
 export function prefetchSynthTexts(texts: string[]): void {
@@ -852,6 +873,7 @@ export function stopTtsStream(): void {
   streamEpoch++
   prefetchEpoch++
   prefetchInFlight.clear()
+  engine?.abort()
 }
 
 export async function startTtsStream(

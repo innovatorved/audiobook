@@ -26,28 +26,50 @@ export default defineConfig({
     dropBundledWasmAssets(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'Audiobook',
+        id: '/',
+        scope: '/',
+        name: 'Audiobook — Offline PDF Voice Reader',
         short_name: 'Audiobook',
-        description: 'Turn PDFs into audiobooks in your browser',
+        description: 'Turn PDFs into natural audiobooks directly on your device',
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
+        orientation: 'portrait-primary',
         start_url: '/',
+        categories: ['books', 'education', 'productivity'],
         icons: [
+          {
+            src: '/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/icon-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
           {
             src: '/favicon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
-            purpose: 'any maskable',
+            purpose: 'any',
           },
         ],
       },
       workbox: {
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,ico,svg,woff2}'],
+        globPatterns: ['**/*.{js,css,html,ico,svg,png,woff2}'],
         globIgnores: ['**/ort/**', '**/kitten-model/**', '**/*.wasm'],
         runtimeCaching: [
           {
@@ -57,6 +79,15 @@ export default defineConfig({
               cacheName: 'kitten-manifest',
               expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 7 },
               networkTimeoutSeconds: 3,
+            },
+          },
+          {
+            urlPattern: /\/ort\/.*\.(?:wasm|mjs)$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'ort-wasm-runtime',
+              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
             },
           },
         ],

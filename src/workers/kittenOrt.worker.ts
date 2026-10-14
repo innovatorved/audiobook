@@ -68,9 +68,13 @@ type ErrorOutMessage = {
   stage?: CompileStage | 'generate'
 }
 
+type QueuedGenerateMessage = GenerateMessage & {
+  epoch: number
+}
+
 let tts: KittenTtsRuntime | null = null
-let abortRequested = false
-const generateQueue: GenerateMessage[] = []
+let abortEpoch = 0
+const generateQueue: QueuedGenerateMessage[] = []
 let isProcessingQueue = false
 
 function postProgress(
@@ -129,7 +133,7 @@ function configureOrt(wasmBase: string, ortWasmBuffer?: ArrayBuffer): void {
 
 async function handleLoad(msg: LoadMessage): Promise<void> {
   tts = null
-  abortRequested = false
+  abortEpoch++
   generateQueue.length = 0
 
   postProgress(ESTIMATED_BYTES * 0.4, ESTIMATED_BYTES, 'downloading', 'ort-init')
@@ -167,8 +171,9 @@ function processGenerateQueue(): void {
   void (async () => {
     while (generateQueue.length > 0) {
       const msg = generateQueue.shift()!
+      const isAborted = () => msg.epoch !== abortEpoch
 
-      if (abortRequested) {
+      if (isAborted()) {
         const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
         self.postMessage(doneMsg)
         continue
@@ -183,10 +188,10 @@ function processGenerateQueue(): void {
         const audio = await tts.generate(msg.text, {
           voice: msg.voice,
           speed: msg.speed,
-          shouldAbort: () => abortRequested,
+          shouldAbort: isAborted,
         })
 
-        if (abortRequested) {
+        if (isAborted()) {
           const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
           self.postMessage(doneMsg)
           continue
@@ -203,7 +208,7 @@ function processGenerateQueue(): void {
         const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
         self.postMessage(doneMsg)
       } catch (err) {
-        if (abortRequested) {
+        if (isAborted()) {
           const doneMsg: DoneOutMessage = { type: 'done', id: msg.id }
           self.postMessage(doneMsg)
           continue
@@ -231,7 +236,7 @@ self.onmessageerror = () => {
 self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
   const msg = event.data
   if (msg.type === 'abort') {
-    abortRequested = true
+    abortEpoch++
     while (generateQueue.length > 0) {
       const item = generateQueue.shift()!
       const doneMsg: DoneOutMessage = { type: 'done', id: item.id }
@@ -248,10 +253,7 @@ self.onmessage = (event: MessageEvent<WorkerInMessage>) => {
   }
 
   if (msg.type === 'generate') {
-    if (!isProcessingQueue && generateQueue.length === 0) {
-      abortRequested = false
-    }
-    generateQueue.push(msg)
+    generateQueue.push({ ...msg, epoch: abortEpoch })
     processGenerateQueue()
     return
   }

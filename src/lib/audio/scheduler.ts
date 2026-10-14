@@ -41,7 +41,12 @@ export class AudioScheduler {
   }
 
   setPlaybackRate(rate: number): void {
+    const changed = this.playbackRate !== rate
     this.playbackRate = rate
+    if (this.isPaused && changed && this.sources.length > 0) {
+      this.clear()
+      return
+    }
     for (const source of this.sources) {
       source.playbackRate.value = rate
     }
@@ -127,6 +132,23 @@ export class AudioScheduler {
     this.isPaused = false
   }
 
+  canResumeInPlace(): boolean {
+    if (!this.ctx || !this.isPaused) return false
+    if (this.sources.length === 0 || this.scheduledSentences.length === 0) return false
+    return this.nextStartTime > this.ctx.currentTime + 0.05
+  }
+
+  getLastScheduledSentenceIndex(): number {
+    if (this.scheduledSentences.length === 0) return -1
+    return this.scheduledSentences[this.scheduledSentences.length - 1].sentenceIndex
+  }
+
+  async resumeInPlace(): Promise<void> {
+    const ctx = await this.ensureContext()
+    this.isPaused = false
+    await ctx.resume()
+  }
+
   async play(): Promise<void> {
     const ctx = await this.ensureContext()
     if (this.isPaused && this.pausedAt > 0) {
@@ -148,7 +170,6 @@ export class AudioScheduler {
     if (!this.ctx) return
     this.pausedAt = this.getCurrentTime()
     this.isPaused = true
-    this.stopAllSources()
     await this.ctx.suspend()
   }
 

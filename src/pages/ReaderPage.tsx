@@ -724,6 +724,7 @@ export function ReaderPage() {
   }, [isModelReady, engineReady, engine, startFromSentence])
 
   useEffect(() => {
+    if (isPlaying) return
     if (engine === 'browser') return
     if (!isEngineReady() || sentenceTexts.length === 0) return
     const start = Math.max(0, currentSentenceIndex)
@@ -737,6 +738,7 @@ export function ReaderPage() {
       prefetchSynth(preload)
     }
   }, [
+    isPlaying,
     isModelReady,
     engineReady,
     engine,
@@ -778,6 +780,21 @@ export function ReaderPage() {
       await pausePlayback()
     } else {
       enableContinuousPrefetch(true)
+      if (!usesBrowserPlayback() && audioScheduler.canResumeInPlace()) {
+        playbackGenRef.current++
+        streamGenRef.current = playbackGenRef.current
+        streamingRef.current = true
+        setPlaying(true)
+        await audioScheduler.resumeInPlace()
+        startHighlightSync()
+        const nextIdx = audioScheduler.getLastScheduledSentenceIndex() + 1
+        if (nextIdx > 0 && nextIdx < sentenceTexts.length) {
+          await startStream([...sentenceTexts], nextIdx, handleAudioChunk)
+        }
+        void persist()
+        return
+      }
+
       const resumeIndex = getResumeSentenceIndex()
       const sentence = sentences[resumeIndex]
       const wordIdx =
@@ -796,6 +813,11 @@ export function ReaderPage() {
     activeWordIndex,
     getResumeSentenceIndex,
     startFromSentence,
+    startStream,
+    handleAudioChunk,
+    startHighlightSync,
+    setPlaying,
+    persist,
     enableContinuousPrefetch,
     pausePlayback,
     ensureEngine,
@@ -911,7 +933,11 @@ export function ReaderPage() {
         })
       }
 
-      if (!isPlaying) return
+      if (!isPlaying) {
+        audioScheduler.clear()
+        highlightSync.clear()
+        return
+      }
 
       const resumeIndex = getResumeSentenceIndex()
       streamingRef.current = false
@@ -1001,6 +1027,84 @@ export function ReaderPage() {
       startFromSentence,
     ],
   )
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    const ms = navigator.mediaSession
+    try {
+      ms.metadata = new MediaMetadata({
+        title: docName || 'Audiobook',
+        artist: `Page ${activePageNum || visiblePage || 1} of ${totalPages || 1}`,
+        album: 'Readier Audiobook',
+      })
+      ms.playbackState = isPlaying ? 'playing' : 'paused'
+    } catch {
+      // Ignore environments without MediaMetadata constructor
+    }
+  }, [docName, activePageNum, visiblePage, totalPages, isPlaying])
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return
+    const ms = navigator.mediaSession
+    const actions: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+      ['play', () => void handlePlayPause()],
+      ['pause', () => void pausePlayback()],
+      ['previoustrack', () => handleSkipBack()],
+      ['nexttrack', () => handleSkipForward()],
+    ]
+    for (const [action, handler] of actions) {
+      try {
+        ms.setActionHandler(action, handler)
+      } catch {
+        // Unsupported action in this browser
+      }
+    }
+    return () => {
+      for (const [action] of actions) {
+        try {
+          ms.setActionHandler(action, null)
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  }, [handlePlayPause, pausePlayback, handleSkipBack, handleSkipForward])
+
+  useEffect(() => {
+    if (!isPlaying || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return
+    let sentinel: WakeLockSentinel | null = null
+    let cancelled = false
+
+    const requestLock = async () => {
+      try {
+        if (document.visibilityState !== 'visible') return
+        const lock = await navigator.wakeLock.request('screen')
+        if (cancelled) {
+          await lock.release()
+          return
+        }
+        sentinel = lock
+      } catch {
+        // Wake lock is best-effort on mobile/PWA
+      }
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && !cancelled) {
+        void requestLock()
+      }
+    }
+
+    void requestLock()
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibility)
+      if (sentinel) {
+        void sentinel.release().catch(() => undefined)
+      }
+    }
+  }, [isPlaying])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

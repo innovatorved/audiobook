@@ -5,12 +5,10 @@ import { LoadAbortedError, loadKittenOnMainThread } from '@/lib/tts/kittenMainTh
 import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
 import {
   isCrossOriginIsolated,
-  prefersInlineWorker,
   shouldUseMainThreadOrt,
 } from '@/lib/tts/kittenPlatform'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
 import KittenWorker from '../../workers/kittenOrt.worker.ts?worker'
-import InlineKittenWorker from '../../workers/kittenOrt.worker.ts?worker&inline'
 
 const LOAD_TIMEOUT_MS = 130_000
 
@@ -112,6 +110,14 @@ export class KittenEngine implements TtsEngine {
     onStage?: (stage: CompileStage) => void
   } | null = null
 
+  abort(): void {
+    this.worker?.postMessage({ type: 'abort' })
+    for (const pending of this.pendingGenerates.values()) {
+      pending.resolve(null)
+    }
+    this.pendingGenerates.clear()
+  }
+
   dispose(): void {
     this.pendingGenerates.forEach(({ reject }) => {
       reject(new LoadAbortedError())
@@ -147,16 +153,16 @@ export class KittenEngine implements TtsEngine {
     }
   }
 
-  private async ensureWorker(useInline = false): Promise<Worker> {
+  private async ensureWorker(): Promise<Worker> {
     if (this.worker) return this.worker
     if (!this.workerReady) {
-      this.workerReady = this.createWorker(useInline)
+      this.workerReady = this.createWorker()
     }
     return this.workerReady
   }
 
-  private async createWorker(useInline = false): Promise<Worker> {
-    const worker = useInline ? new InlineKittenWorker() : new KittenWorker()
+  private async createWorker(): Promise<Worker> {
+    const worker = new KittenWorker()
     this.attachWorkerHandlers(worker)
     this.worker = worker
     return worker
@@ -267,9 +273,8 @@ export class KittenEngine implements TtsEngine {
     onProgress: ProgressCallback,
     preload: KittenPreload,
     opts?: KittenLoadOptions,
-    useInlineWorker = prefersInlineWorker(),
   ): Promise<void> {
-    const worker = await this.ensureWorker(useInlineWorker)
+    const worker = await this.ensureWorker()
     const ortWasmBuffer = await getOrtWasmBinary()
 
     return new Promise((resolve, reject) => {
@@ -327,13 +332,12 @@ export class KittenEngine implements TtsEngine {
     onProgress: ProgressCallback,
     preload: KittenPreload,
     opts?: KittenLoadOptions,
-    useInlineWorker = false,
   ): Promise<void> {
     if (this.mainThreadMode) {
       await this.loadOnceMainThread(onProgress, preload, opts)
       return
     }
-    await this.loadOnceWorker(onProgress, preload, opts, useInlineWorker)
+    await this.loadOnceWorker(onProgress, preload, opts)
   }
 
   async load(
@@ -356,35 +360,15 @@ export class KittenEngine implements TtsEngine {
       return
     }
 
-    let lastError: Error | null = null
     this.loadPromise = (async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        assertNotAborted(opts?.shouldAbort)
-        if (attempt > 0) {
-          this.dispose()
-        }
-        try {
-          const needsClone = attempt === 0 && !this.mainThreadMode
-          await this.loadOnce(
-            onProgress,
-            {
-              modelBuffer: needsClone ? preload.modelBuffer.slice(0) : preload.modelBuffer,
-              voicesBuffer: needsClone ? preload.voicesBuffer.slice(0) : preload.voicesBuffer,
-              config: preload.config,
-            },
-            opts,
-            (attempt > 0 && !this.mainThreadMode) || prefersInlineWorker(),
-          )
-          return
-        } catch (err) {
-          lastError = err instanceof Error ? err : new Error(String(err))
-          if (lastError instanceof LoadAbortedError) {
-            throw lastError
-          }
-          this.dispose()
-        }
+      assertNotAborted(opts?.shouldAbort)
+      try {
+        await this.loadOnce(onProgress, preload, opts)
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err))
+        this.dispose()
+        throw error
       }
-      throw lastError ?? new Error('Voice engine failed to load')
     })()
 
     try {

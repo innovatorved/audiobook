@@ -3,7 +3,8 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "kitten-tts-js/src/*": ["./node_modules/kitten-tts-js/src/*"]
     }
   },
   "files": [],
