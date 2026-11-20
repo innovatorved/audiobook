@@ -17,8 +17,13 @@ export function getPdfLogicalViewport(page: PDFPageProxy) {
 export async function renderPdfPageToCanvas(
   page: PDFPageProxy,
   canvas: HTMLCanvasElement,
-): Promise<{ width: number; height: number }> {
+  signal?: AbortSignal,
+): Promise<{ width: number; height: number; cancelled?: boolean }> {
   const viewport = getPdfLogicalViewport(page)
+  if (signal?.aborted) {
+    return { width: viewport.width, height: viewport.height, cancelled: true }
+  }
+
   const dpr = getPdfDisplayDpr()
   const ctx = canvas.getContext('2d')
   if (!ctx) {
@@ -30,7 +35,28 @@ export async function renderPdfPageToCanvas(
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, viewport.width, viewport.height)
 
-  await page.render({ canvasContext: ctx, viewport, canvas }).promise
+  const renderTask = page.render({ canvasContext: ctx, viewport, canvas })
+  const onAbort = () => {
+    try {
+      renderTask.cancel()
+    } catch {
+      // already finished or cancelled
+    }
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
 
-  return { width: viewport.width, height: viewport.height }
+  try {
+    await renderTask.promise
+    return { width: viewport.width, height: viewport.height }
+  } catch (err) {
+    if (
+      signal?.aborted ||
+      (err instanceof Error && err.name === 'RenderingCancelledException')
+    ) {
+      return { width: viewport.width, height: viewport.height, cancelled: true }
+    }
+    throw err
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+  }
 }

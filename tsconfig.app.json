@@ -10,10 +10,8 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
-    "ignoreDeprecations": "6.0",
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "kitten-tts-js/src/*": ["./node_modules/kitten-tts-js/src/*"]

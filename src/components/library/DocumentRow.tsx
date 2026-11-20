@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { FileText, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
@@ -40,11 +40,20 @@ export function DocumentRow({ doc, onUpdated, compact = false }: DocumentRowProp
   const [deleteOpen, setDeleteOpen] = useState(false)
   const hasProgress = doc.progressPct > 0
 
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [menuOpen])
+
   return (
     <>
       <div
         className={cn(
-          'group flex min-h-[4.5rem] w-full items-center gap-3 px-4 py-4 transition-smooth hover:bg-muted sm:gap-4 sm:px-5',
+          'group flex min-h-[4.5rem] w-full items-center gap-3 px-4 py-4 transition-smooth first:rounded-t-md last:rounded-b-md hover:bg-muted sm:gap-4 sm:px-5',
           !compact && 'sm:py-5',
         )}
       >

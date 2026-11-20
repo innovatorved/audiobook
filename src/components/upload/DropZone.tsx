@@ -61,7 +61,7 @@ export function DropZone({ className }: DropZoneProps) {
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
       className={cn(
-        'surface-panel block cursor-pointer transition-smooth focus-within:ring-2 focus-within:ring-primary/50',
+        'surface-panel block cursor-pointer transition-smooth active:scale-[0.99] focus-within:ring-2 focus-within:ring-primary/50',
         isDragging && 'border-primary ring-1 ring-primary/30',
         isUploading && 'pointer-events-none opacity-70',
         className,
@@ -105,7 +105,7 @@ export function DropZone({ className }: DropZoneProps) {
                 : 'Choose a PDF'}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Drag and drop here, or click to browse
+            Tap or drop a PDF to start listening
           </p>
         </div>
       </div>

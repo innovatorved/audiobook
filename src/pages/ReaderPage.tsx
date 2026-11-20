@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { PdfScrollerHandle } from '@/components/pdf/PdfScroller'
 import { useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -93,7 +94,23 @@ export function ReaderPage() {
     setWords,
     setExtracting,
     reset: resetReader,
-  } = useReaderStore()
+  } = useReaderStore(
+    useShallow((s) => ({
+      docName: s.docName,
+      pdfDoc: s.pdfDoc,
+      totalPages: s.totalPages,
+      isScanned: s.isScanned,
+      words: s.words,
+      sentences: s.sentences,
+      sentenceTexts: s.sentenceTexts,
+      isExtracting: s.isExtracting,
+      setDocument: s.setDocument,
+      setScanned: s.setScanned,
+      setWords: s.setWords,
+      setExtracting: s.setExtracting,
+      reset: s.reset,
+    })),
+  )
 
   const {
     isPlaying,
@@ -103,6 +120,7 @@ export function ReaderPage() {
     setPlaying,
     speed,
     setSpeed,
+    volume,
     engine,
     setVoice,
     activeWordIndex,
@@ -113,7 +131,28 @@ export function ReaderPage() {
     setSentenceIndex,
     setTotalSentences,
     reset: resetPlayer,
-  } = usePlayerStore()
+  } = usePlayerStore(
+    useShallow((s) => ({
+      isPlaying: s.isPlaying,
+      isModelReady: s.isModelReady,
+      isModelLoading: s.isModelLoading,
+      engineReady: s.engineReady,
+      setPlaying: s.setPlaying,
+      speed: s.speed,
+      setSpeed: s.setSpeed,
+      volume: s.volume,
+      engine: s.engine,
+      setVoice: s.setVoice,
+      activeWordIndex: s.activeWordIndex,
+      activePageNum: s.activePageNum,
+      currentSentenceIndex: s.currentSentenceIndex,
+      modelError: s.modelError,
+      setActiveWord: s.setActiveWord,
+      setSentenceIndex: s.setSentenceIndex,
+      setTotalSentences: s.setTotalSentences,
+      reset: s.reset,
+    })),
+  )
 
   const prevSpeedRef = useRef(speed)
 
@@ -233,22 +272,26 @@ export function ReaderPage() {
 
         const prefs = loadPreferences()
         const metadata = await getMetadata(docId)
+        const resolvedEngine = metadata?.engine ?? prefs.engine
         if (metadata) {
-          const safeVoice = sanitizeVoice(metadata.voice)
+          const safeVoice = sanitizeVoice(metadata.voice, resolvedEngine)
           const safeSpeed = clampPlaybackSpeed(metadata.speed ?? prefs.speed)
           rememberVoice(safeVoice)
           usePlayerStore.setState({
-            engine: 'kitten',
+            engine: resolvedEngine,
             voice: safeVoice,
             speed: safeSpeed,
+            volume: prefs.volume,
           })
         } else {
           usePlayerStore.setState({
-            engine: 'kitten',
+            engine: resolvedEngine,
             voice: prefs.voice,
             speed: clampPlaybackSpeed(prefs.speed),
+            volume: prefs.volume,
           })
         }
+        audioScheduler.setVolume(prefs.volume)
 
         const progress = await restoreProgress(docId)
         if (progress) {
@@ -320,10 +363,17 @@ export function ReaderPage() {
     prefetchAround(seedPage)
   }, [isScanned, pdfDoc, prefetchAround])
 
+  const handleScrollSettled = useCallback(
+    (pageNum: number) => {
+      if (!isScanned || !pdfDoc || !ocrPrefetchSeededRef.current) return
+      prefetchAround(pageNum)
+    },
+    [isScanned, pdfDoc, prefetchAround],
+  )
+
   useEffect(() => {
-    if (!isScanned || !pdfDoc || !ocrPrefetchSeededRef.current) return
-    prefetchAround(visiblePage)
-  }, [isScanned, pdfDoc, visiblePage, prefetchAround])
+    audioScheduler.setVolume(volume)
+  }, [volume])
 
   useEffect(() => {
     if (sentenceTexts.length > 0) {
@@ -1169,6 +1219,7 @@ export function ReaderPage() {
         title={docName}
         pageIndicator={pageLabel}
         onVoiceChange={handleVoiceChange}
+        onSpeedChange={handleSpeedChange}
       />
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -1185,6 +1236,7 @@ export function ReaderPage() {
           initialPage={initialPage}
           resetFollowKey={followResetKey}
           onVisiblePageChange={setVisiblePage}
+          onScrollSettled={handleScrollSettled}
           onUserNavigate={handleUserNavigate}
           suppressUserNavigateRef={userSeekInProgressRef}
           onLineClick={handleLineClick}
@@ -1192,6 +1244,7 @@ export function ReaderPage() {
           onReturnToPlayback={handleReturnToPlayback}
           playbackPageNum={playbackPage}
           words={words}
+          wordsByPage={wordsByPage}
           scrollerRef={pdfScrollerRef}
         />
       </div>
@@ -1210,6 +1263,7 @@ export function ReaderPage() {
         onSkipBack={handleSkipBack}
         onSkipForward={handleSkipForward}
         onScrub={handleSeek}
+        onSpeedChange={handleSpeedChange}
       />
     </div>
   )

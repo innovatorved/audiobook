@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { Slider } from '@/components/ui/slider'
 import { VoicePicker } from '@/components/player/VoicePicker'
 import {
@@ -8,6 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { audioScheduler } from '@/lib/audio/scheduler'
+import { highlightSync } from '@/lib/audio/highlightSync'
 import {
   MAX_PLAYBACK_SPEED,
   MIN_PLAYBACK_SPEED,
@@ -16,12 +19,18 @@ import {
 } from '@/lib/audio/speed'
 import { rememberVoice, savePreferences } from '@/lib/preferences'
 import { browserSpeech, activateBrowserEngine } from '@/lib/tts/browserSpeech'
-import { clearSynthCache, switchEngine, unloadTtsEngine } from '@/lib/tts/ttsWorkerManager'
+import {
+  clearSynthCache,
+  stopTtsStream,
+  switchEngine,
+  unloadTtsEngine,
+} from '@/lib/tts/ttsWorkerManager'
 import { usePlayerStore } from '@/stores/playerStore'
 import type { TtsEngineType } from '@/lib/types'
 
 interface PlayerSettingsProps {
   onVoiceChange?: (voice: string) => void
+  onSpeedChange?: (speed: number) => void
 }
 
 function SettingRow({
@@ -53,7 +62,7 @@ function SettingRow({
   )
 }
 
-export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
+export function PlayerSettings({ onVoiceChange, onSpeedChange }: PlayerSettingsProps) {
   const {
     speed,
     setSpeed,
@@ -65,11 +74,29 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
     setPlaying,
     volume,
     setVolume,
-  } = usePlayerStore()
+  } = usePlayerStore(
+    useShallow((s) => ({
+      speed: s.speed,
+      setSpeed: s.setSpeed,
+      voice: s.voice,
+      voices: s.voices,
+      setVoice: s.setVoice,
+      engine: s.engine,
+      setEngine: s.setEngine,
+      setPlaying: s.setPlaying,
+      volume: s.volume,
+      setVolume: s.setVolume,
+    })),
+  )
 
   const handleEngineChange = (nextEngine: TtsEngineType) => {
     if (nextEngine === engine) return
+    stopTtsStream()
     browserSpeech.cancel()
+    void audioScheduler.pause()
+    audioScheduler.clear()
+    highlightSync.pause()
+    highlightSync.clear()
     clearSynthCache()
     setPlaying(false)
     setEngine(nextEngine)
@@ -117,11 +144,15 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
           value={[clampPlaybackSpeed(speed)]}
           onValueChange={([v]) => {
             const nextSpeed = clampPlaybackSpeed(v)
-            setSpeed(nextSpeed)
-            savePreferences({ speed: nextSpeed })
+            if (onSpeedChange) {
+              onSpeedChange(nextSpeed)
+            } else {
+              setSpeed(nextSpeed)
+              savePreferences({ speed: nextSpeed })
+            }
           }}
           aria-label="Playback speed"
-          className="w-full"
+          className="w-full py-1"
         />
       </SettingRow>
 
@@ -133,10 +164,11 @@ export function PlayerSettings({ onVoiceChange }: PlayerSettingsProps) {
           value={[volume]}
           onValueChange={([v]) => {
             setVolume(v)
+            audioScheduler.setVolume(v)
             savePreferences({ volume: v })
           }}
           aria-label="Volume"
-          className="w-full"
+          className="w-full py-1"
         />
       </SettingRow>
     </div>

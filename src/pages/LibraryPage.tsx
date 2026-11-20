@@ -53,7 +53,7 @@ export function LibraryPage() {
             <DropZone />
           </div>
         ) : (
-          <div className="surface-panel mt-6 divide-y divide-border overflow-hidden">
+          <div className="surface-panel mt-6 divide-y divide-border">
             {docs.map((doc) => (
               <DocumentRow key={doc.docId} doc={doc} onUpdated={refreshDocs} />
             ))}

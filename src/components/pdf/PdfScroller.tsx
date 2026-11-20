@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -29,6 +30,7 @@ interface PdfScrollerProps {
   initialPage?: number
   resetFollowKey?: number
   onVisiblePageChange?: (pageNum: number) => void
+  onScrollSettled?: (pageNum: number) => void
   onUserNavigate?: () => void
   suppressUserNavigateRef?: RefObject<boolean>
   onLineClick?: (sentenceIndex: number, wordIndex: number) => void
@@ -37,6 +39,7 @@ interface PdfScrollerProps {
   onReturnToPlayback?: () => void
   playbackPageNum?: number
   words: WordPosition[]
+  wordsByPage?: Map<number, WordPosition[]>
   scrollerRef?: Ref<PdfScrollerHandle>
 }
 
@@ -54,6 +57,7 @@ export function PdfScroller({
   initialPage,
   resetFollowKey = 0,
   onVisiblePageChange,
+  onScrollSettled,
   onUserNavigate,
   suppressUserNavigateRef,
   onLineClick,
@@ -62,6 +66,7 @@ export function PdfScroller({
   onReturnToPlayback,
   playbackPageNum,
   words,
+  wordsByPage: wordsByPageProp,
   scrollerRef,
 }: PdfScrollerProps) {
   const parentRef = useRef<HTMLDivElement>(null)
@@ -77,7 +82,9 @@ export function PdfScroller({
   const activeScrollTargetRef = useRef<number | null>(null)
   const touchStartYRef = useRef(0)
   const lastFollowedPageRef = useRef(-1)
+  const lastReportedPageRef = useRef(-1)
   const followRafRef = useRef<number | null>(null)
+  const lastRafTimeRef = useRef<number>(0)
   const activeWordRef = useRef(activeWord)
   const activePageNumRef = useRef(activePageNum)
   const followHighlightRef = useRef(followHighlight)
@@ -87,7 +94,8 @@ export function PdfScroller({
   const [heightEstimatesReady, setHeightEstimatesReady] = useState(false)
   const [columnWidth, setColumnWidth] = useState(0)
 
-  const wordsByPage = useMemo(() => {
+  const computedWordsByPage = useMemo(() => {
+    if (wordsByPageProp) return wordsByPageProp
     const map = new Map<number, WordPosition[]>()
     for (const w of words) {
       let arr = map.get(w.pageNum)
@@ -98,7 +106,9 @@ export function PdfScroller({
       arr.push(w)
     }
     return map
-  }, [words])
+  }, [words, wordsByPageProp])
+
+  const wordsByPage = wordsByPageProp ?? computedWordsByPage
 
   useEffect(() => {
     activeWordRef.current = activeWord
@@ -276,108 +286,128 @@ export function PdfScroller({
     virtualizer.scrollToIndex(initialPage - 1, { align: 'start', behavior: 'auto' })
   }, [initialPage, virtualizer, heightEstimatesReady, markProgrammaticScroll])
 
-  useEffect(() => {
-    if (!followHighlight) {
-      if (followRafRef.current !== null) {
-        cancelAnimationFrame(followRafRef.current)
-        followRafRef.current = null
-      }
-      activeScrollTargetRef.current = null
-      return
+  const stopFollowRaf = useCallback(() => {
+    if (followRafRef.current !== null) {
+      cancelAnimationFrame(followRafRef.current)
+      followRafRef.current = null
     }
+    lastRafTimeRef.current = 0
+  }, [])
 
-    const prefersReducedMotion = () =>
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const startSmoothScrollLoop = useCallback(() => {
+    if (followRafRef.current !== null) return
 
-    const tick = () => {
+    const step = (now: number) => {
       if (!followHighlightRef.current || userScrolledRef.current) {
-        followRafRef.current = requestAnimationFrame(tick)
+        activeScrollTargetRef.current = null
+        stopFollowRaf()
         return
       }
 
       const scrollEl = parentRef.current
-      const word = activeWordRef.current
-      if (!scrollEl || !word) {
-        followRafRef.current = requestAnimationFrame(tick)
+      const target = activeScrollTargetRef.current
+      if (!scrollEl || target === null) {
+        stopFollowRaf()
         return
       }
 
-      const followPage = word.pageNum > 0 ? word.pageNum : activePageNumRef.current
-      if (followPage > 0 && followPage !== lastFollowedPageRef.current) {
-        lastFollowedPageRef.current = followPage
-        if (!isPageInView(followPage)) {
-          markAutoPageScroll(prefersReducedMotion() ? 200 : 500)
-          virtualizer.scrollToIndex(followPage - 1, {
-            align: 'start',
-            behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-          })
-          followRafRef.current = requestAnimationFrame(tick)
-          return
-        }
-      }
-
-      if (Date.now() < autoPageScrollUntilRef.current) {
-        followRafRef.current = requestAnimationFrame(tick)
+      const diff = target - scrollEl.scrollTop
+      if (Math.abs(diff) <= 1.5) {
+        scrollEl.scrollTop = target
+        markAutoScrollPosition(scrollEl.scrollTop)
+        activeScrollTargetRef.current = null
+        stopFollowRaf()
         return
       }
 
-      const pos = computeWordViewportPosition(word, scrollEl)
-      if (pos !== null) {
-        const viewTop = scrollEl.scrollTop
-        const viewHeight = scrollEl.clientHeight
-        const relTop = pos.wordTop - viewTop
-        const relBottom = pos.wordBottom - viewTop
+      const dt = lastRafTimeRef.current > 0 ? Math.min(0.05, (now - lastRafTimeRef.current) / 1000) : 0.016
+      lastRafTimeRef.current = now
+      // Frame-rate independent exponential damping (identical feel on 60Hz, 90Hz, 120Hz)
+      const lambda = Math.abs(diff) > 220 ? 10 : 7.5
+      const factor = 1 - Math.exp(-lambda * dt)
+      scrollEl.scrollTop += diff * factor
+      markAutoScrollPosition(scrollEl.scrollTop)
 
-        const comfortTop = viewHeight * 0.18
-        const comfortBottom = viewHeight * 0.68
-
-        if (relTop < comfortTop || relBottom > comfortBottom) {
-          activeScrollTargetRef.current = pos.idealScrollTop
-        }
-
-        const target = activeScrollTargetRef.current
-        if (target !== null) {
-          const diff = target - scrollEl.scrollTop
-          if (Math.abs(diff) <= 3) {
-            activeScrollTargetRef.current = null
-          } else {
-            if (prefersReducedMotion()) {
-              scrollEl.scrollTop = target
-              activeScrollTargetRef.current = null
-            } else {
-              const step = Math.abs(diff) > 220 ? 0.14 : 0.1
-              scrollEl.scrollTop += diff * step
-            }
-            markAutoScrollPosition(scrollEl.scrollTop)
-          }
-        }
-      } else if (followPage > 0 && !isPageInView(followPage)) {
-        markAutoPageScroll(500)
-        virtualizer.scrollToIndex(followPage - 1, {
-          align: 'start',
-          behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-        })
-      }
-
-      followRafRef.current = requestAnimationFrame(tick)
+      followRafRef.current = requestAnimationFrame(step)
     }
 
-    followRafRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (followRafRef.current !== null) {
-        cancelAnimationFrame(followRafRef.current)
-        followRafRef.current = null
+    lastRafTimeRef.current = performance.now()
+    followRafRef.current = requestAnimationFrame(step)
+  }, [markAutoScrollPosition, stopFollowRaf])
+
+  useEffect(() => {
+    if (!followHighlight) {
+      activeScrollTargetRef.current = null
+      stopFollowRaf()
+      return
+    }
+    if (userScrolledRef.current) return
+
+    const scrollEl = parentRef.current
+    const word = activeWord
+    if (!scrollEl || !word) return
+
+    const prefersReducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const followPage = word.pageNum > 0 ? word.pageNum : activePageNum
+    if (followPage > 0 && followPage !== lastFollowedPageRef.current) {
+      lastFollowedPageRef.current = followPage
+      if (!isPageInView(followPage)) {
+        markAutoPageScroll(prefersReducedMotion ? 200 : 450)
+        virtualizer.scrollToIndex(followPage - 1, {
+          align: 'start',
+          behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        })
+        return
       }
+    }
+
+    if (Date.now() < autoPageScrollUntilRef.current) return
+
+    const pos = computeWordViewportPosition(word, scrollEl)
+    if (pos !== null) {
+      const viewTop = scrollEl.scrollTop
+      const viewHeight = scrollEl.clientHeight
+      const relTop = pos.wordTop - viewTop
+      const relBottom = pos.wordBottom - viewTop
+
+      const comfortTop = viewHeight * 0.18
+      const comfortBottom = viewHeight * 0.68
+
+      if (relTop < comfortTop || relBottom > comfortBottom) {
+        if (prefersReducedMotion) {
+          scrollEl.scrollTop = pos.idealScrollTop
+          markAutoScrollPosition(scrollEl.scrollTop)
+          activeScrollTargetRef.current = null
+        } else {
+          activeScrollTargetRef.current = pos.idealScrollTop
+          startSmoothScrollLoop()
+        }
+      }
+    } else if (followPage > 0 && !isPageInView(followPage)) {
+      markAutoPageScroll(450)
+      virtualizer.scrollToIndex(followPage - 1, {
+        align: 'start',
+        behavior: prefersReducedMotion ? 'auto' : 'smooth',
+      })
     }
   }, [
     followHighlight,
+    activeWord,
     activePageNum,
+    resetFollowKey,
     virtualizer,
     markAutoScrollPosition,
     markAutoPageScroll,
     computeWordViewportPosition,
     isPageInView,
+    startSmoothScrollLoop,
+    stopFollowRaf,
   ])
+
+  useEffect(() => stopFollowRaf, [stopFollowRaf])
 
   const lockUserScroll = useCallback(() => {
     markProgrammaticScroll()
@@ -467,17 +497,49 @@ export function PdfScroller({
   ])
 
   const virtualItems = virtualizer.getVirtualItems()
+  const firstVisiblePage = virtualItems.length > 0 ? virtualItems[0].index + 1 : -1
 
   useEffect(() => {
-    if (virtualItems.length > 0) {
-      onVisiblePageChange?.(virtualItems[0].index + 1)
+    if (firstVisiblePage > 0 && firstVisiblePage !== lastReportedPageRef.current) {
+      lastReportedPageRef.current = firstVisiblePage
+      onVisiblePageChange?.(firstVisiblePage)
     }
-  }, [virtualItems, onVisiblePageChange])
+  }, [firstVisiblePage, onVisiblePageChange])
+
+  useEffect(() => {
+    if (!onScrollSettled) return
+    const el = parentRef.current
+    if (!el) return
+
+    const reportSettled = () => {
+      const items = virtualizer.getVirtualItems()
+      if (items.length > 0) {
+        onScrollSettled(items[0].index + 1)
+      }
+    }
+
+    if ('onscrollend' in window) {
+      el.addEventListener('scrollend', reportSettled, { passive: true })
+      return () => el.removeEventListener('scrollend', reportSettled)
+    }
+
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const onScrollFallback = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(reportSettled, 120)
+    }
+    el.addEventListener('scroll', onScrollFallback, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScrollFallback)
+      if (timer) clearTimeout(timer)
+    }
+  }, [onScrollSettled, virtualizer])
 
   return (
     <div
       ref={parentRef}
-      className="reader-canvas h-full min-h-0 overflow-x-hidden overflow-y-auto px-4 pb-40 pt-7 sm:px-10 sm:pt-12 sm:pb-44"
+      className="reader-canvas h-full min-h-0 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 pb-40 pt-7 sm:px-10 sm:pt-12 sm:pb-44"
+      style={{ scrollPaddingBottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))' }}
       onScroll={handleScroll}
     >
       <div
@@ -523,7 +585,7 @@ export function PdfScroller({
   )
 }
 
-function PdfPageWrapper({
+const PdfPageWrapper = memo(function PdfPageWrapper({
   pageNum,
   getPage,
   activeWord,
@@ -585,4 +647,4 @@ function PdfPageWrapper({
       estimatedNativeSize={estimatedNativeSize}
     />
   )
-}
+})

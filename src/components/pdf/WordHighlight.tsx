@@ -21,14 +21,13 @@ export function WordHighlight({ word, rect, variant, interactive, onClick }: Wor
   const Tag = interactive ? 'button' : 'div'
 
   const baseClasses = interactive
-    ? 'absolute cursor-pointer border-0 p-0 transition-opacity duration-150 hover:opacity-90'
+    ? 'absolute top-0 left-0 cursor-pointer border-0 p-0 transition-opacity duration-150 hover:opacity-90'
     : isActive
-      ? 'pointer-events-none absolute transition-[left,top,width,height,opacity] duration-75 ease-out will-change-[left,top,width,height]'
-      : 'pointer-events-none absolute transition-opacity duration-150'
+      ? 'pointer-events-none absolute top-0 left-0 transition-[transform,width,height,opacity] duration-75 ease-out will-change-transform'
+      : 'pointer-events-none absolute top-0 left-0 transition-opacity duration-150'
 
   const style: React.CSSProperties = {
-    left: box.left,
-    top: box.top,
+    transform: `translate3d(${box.left}px, ${box.top}px, 0)`,
     width: box.width,
     height: box.height,
     backgroundColor: isActive ? 'var(--color-speaking-active)' : 'var(--color-speaking)',

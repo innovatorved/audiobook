@@ -149,17 +149,46 @@
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    scroll-padding-top: calc(3.5rem + env(safe-area-inset-top, 0px));
+    scroll-padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
   }
 
-  html,
-  body {
-    overflow-x: hidden;
+  :root {
+    --target-size: 24px;
+  }
+
+  @media (pointer: coarse) {
+    :root {
+      --target-size: 44px;
+    }
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-size: 16px;
     line-height: 1.5;
+    overflow-wrap: break-word;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  :where(button, a, [role="button"], select, summary) {
+    touch-action: manipulation;
+  }
+
+  @media (pointer: coarse) {
+    :where(button, select, [role="button"], nav a) {
+      min-block-size: var(--target-size);
+      min-inline-size: var(--target-size);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -189,6 +218,7 @@
     color: #121212;
     box-shadow: var(--shadow-page-rich);
     border: 1px solid rgb(0 0 0 / 8%);
+    contain: layout style paint;
   }
 
   .reader-page-canvas {
@@ -243,12 +273,12 @@
 
   .icon-touch {
     display: inline-flex;
-    shrink: 0;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     border-radius: 9999px;
     color: var(--app-icon);
-    transition-property: color, background-color;
+    transition-property: color, background-color, transform;
     transition-duration: var(--duration-normal);
     transition-timing-function: var(--ease-out);
   }
@@ -260,6 +290,7 @@
 
   .icon-touch:active {
     background-color: var(--app-card);
+    transform: scale(0.95);
   }
 
   .icon-muted {

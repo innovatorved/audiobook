@@ -7,9 +7,10 @@ interface TopBarProps {
   title: string
   pageIndicator?: string
   onVoiceChange?: (voice: string) => void
+  onSpeedChange?: (speed: number) => void
 }
 
-export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
+export function TopBar({ title, pageIndicator, onVoiceChange, onSpeedChange }: TopBarProps) {
   return (
     <header className="reader-chrome sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top)]">
       <div className="flex h-12 items-center gap-2 px-3 sm:gap-3 sm:px-5">
@@ -18,7 +19,7 @@ export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
           aria-label="Back to library"
           className="icon-touch size-10"
         >
-          <ArrowLeft className="size-[1.125rem]" strokeWidth={2} />
+          <ArrowLeft className="size-[1.125rem]" strokeWidth={2} aria-hidden />
         </Link>
 
         <div className="min-w-0 flex-1 text-center sm:px-2 sm:text-left">
@@ -34,13 +35,14 @@ export function TopBar({ title, pageIndicator, onVoiceChange }: TopBarProps) {
 
         <SettingsSheet
           onVoiceChange={onVoiceChange}
+          onSpeedChange={onSpeedChange}
           trigger={
             <button
               type="button"
               className={cn('icon-touch size-10')}
               aria-label="Playback settings"
             >
-              <Settings className="size-[1.0625rem]" strokeWidth={2} />
+              <Settings className="size-[1.0625rem]" strokeWidth={2} aria-hidden />
             </button>
           }
         />

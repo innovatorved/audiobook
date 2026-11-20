@@ -99,6 +99,15 @@ export async function extractWordsFromPage(
   return clampWordWidths(sortWordsByReadingOrder(words))
 }
 
+async function yieldToMain(): Promise<void> {
+  const sched = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler
+  if (sched && typeof sched.yield === 'function') {
+    await sched.yield()
+    return
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
+
 export async function extractAllDigitalWords(
   doc: PDFDocumentProxy,
   scale = PDF_RENDER_SCALE,
@@ -109,6 +118,9 @@ export async function extractAllDigitalWords(
     const page = await doc.getPage(i)
     const pageWords = await extractWordsFromPage(page, i, scale)
     allWords.push(...pageWords)
+    if (i % 8 === 0 && i < doc.numPages) {
+      await yieldToMain()
+    }
   }
 
   return allWords

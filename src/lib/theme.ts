@@ -11,6 +11,10 @@ export function applyTheme(pref: ThemePreference): 'light' | 'dark' {
   const resolved = resolveTheme(pref)
   document.documentElement.classList.toggle('dark', resolved === 'dark')
   document.documentElement.style.colorScheme = resolved
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+  if (meta) {
+    meta.content = resolved === 'dark' ? '#000000' : '#ffffff'
+  }
   return resolved
 }
 

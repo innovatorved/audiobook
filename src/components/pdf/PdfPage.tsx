@@ -81,47 +81,54 @@ export const PdfPage = memo(function PdfPage({
       : null
 
   useEffect(() => {
-    if (!page || !isVisible || renderingRef.current) return
+    if (!page || !isVisible) return
 
+    const controller = new AbortController()
     const cached = getCachedPageSize(pageNum)
     const canvas = canvasRef.current
 
     if (cached && canvas) {
       setDimensions({ width: cached.width, height: cached.height })
-      setHasRendered(true)
       const expectedWidth = Math.floor(cached.width * getPdfDisplayDpr())
       if (canvas.width !== expectedWidth) {
         renderingRef.current = true
         void (async () => {
-          await renderPdfPageToCanvas(page, canvas)
+          const result = await renderPdfPageToCanvas(page, canvas, controller.signal)
           renderingRef.current = false
+          if (!controller.signal.aborted && !result.cancelled) {
+            setHasRendered(true)
+          }
         })()
+      } else {
+        setHasRendered(true)
       }
-      return
+      return () => {
+        controller.abort()
+        renderingRef.current = false
+      }
     }
 
-    let cancelled = false
     renderingRef.current = true
 
     const render = async () => {
       const canvasEl = canvasRef.current
-      if (!canvasEl || cancelled) {
+      if (!canvasEl || controller.signal.aborted) {
         renderingRef.current = false
         return
       }
 
-      const { width, height } = await renderPdfPageToCanvas(page, canvasEl)
-      if (!cancelled) {
-        setDimensions({ width, height })
-        setCachedPageSize(pageNum, width, height)
+      const result = await renderPdfPageToCanvas(page, canvasEl, controller.signal)
+      renderingRef.current = false
+      if (!controller.signal.aborted && !result.cancelled) {
+        setDimensions({ width: result.width, height: result.height })
+        setCachedPageSize(pageNum, result.width, result.height)
         setHasRendered(true)
-        renderingRef.current = false
       }
     }
 
     void render()
     return () => {
-      cancelled = true
+      controller.abort()
       renderingRef.current = false
     }
   }, [page, isVisible, pageNum])
@@ -188,11 +195,11 @@ export const PdfPage = memo(function PdfPage({
         )}
         <canvas
           ref={canvasRef}
-          className="reader-page-canvas block"
+          className="reader-page-canvas block transition-opacity duration-150 ease-out"
           style={{
             width: nativeWidth > 0 ? displayWidth : '100%',
             height: nativeHeight > 0 ? displayHeight : undefined,
-            visibility: hasRendered ? 'visible' : 'hidden',
+            opacity: hasRendered ? 1 : 0,
           }}
         />
         {showEmptyOverlay && (

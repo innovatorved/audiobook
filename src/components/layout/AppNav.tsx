@@ -18,28 +18,34 @@ export function AppHeader() {
   const { pathname } = useLocation()
 
   return (
-    <header className="chrome-bar sticky top-0 z-50 flex h-12 shrink-0 items-center justify-between px-4 pt-[env(safe-area-inset-top)] sm:px-6">
-      <Link to="/" className="flex items-center gap-2.5 transition-smooth hover:opacity-85">
-        <AppLogo size="sm" />
-        <span className="text-sm font-bold tracking-tight">Audiobook</span>
-      </Link>
+    <header className="chrome-bar sticky top-0 z-50 shrink-0 pt-[env(safe-area-inset-top)]">
+      <div className="flex h-12 items-center justify-between px-4 sm:px-6">
+        <Link to="/" className="flex items-center gap-2.5 transition-smooth hover:opacity-85">
+          <AppLogo size="sm" />
+          <span className="text-sm font-bold tracking-tight">Audiobook</span>
+        </Link>
 
-      <nav className="hidden items-center gap-1 sm:flex" aria-label="Main">
-        {NAV_ITEMS.map(({ to, label, end }) => (
-          <Link
-            key={to}
-            to={to}
-            className={cn(
-              'rounded-full px-4 py-1.5 text-sm font-semibold transition-smooth',
-              isActive(pathname, to, end)
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {label}
-          </Link>
-        ))}
-      </nav>
+        <nav className="hidden items-center gap-1 sm:flex" aria-label="Main">
+          {NAV_ITEMS.map(({ to, label, end }) => {
+            const active = isActive(pathname, to, end)
+            return (
+              <Link
+                key={to}
+                to={to}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'rounded-full px-4 py-1.5 text-sm font-semibold transition-smooth',
+                  active
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {label}
+              </Link>
+            )
+          })}
+        </nav>
+      </div>
     </header>
   )
 }
@@ -49,25 +55,28 @@ export function MobileNav() {
 
   return (
     <nav
-      className="chrome-bar flex h-14 shrink-0 items-stretch border-t border-border pb-[env(safe-area-inset-bottom)] sm:hidden"
+      className="chrome-bar shrink-0 border-t border-border pb-[env(safe-area-inset-bottom)] sm:hidden"
       aria-label="Main"
     >
-      {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => {
-        const active = isActive(pathname, to, end)
-        return (
-          <Link
-            key={to}
-            to={to}
-            className={cn(
-              'flex flex-1 flex-col items-center justify-center gap-0.5 text-xs font-semibold transition-smooth',
-              active ? 'text-foreground' : 'text-muted-foreground',
-            )}
-          >
-            <Icon className="size-5" strokeWidth={active ? 2.25 : 2} />
-            {label}
-          </Link>
-        )
-      })}
+      <div className="flex min-h-14 items-stretch">
+        {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => {
+          const active = isActive(pathname, to, end)
+          return (
+            <Link
+              key={to}
+              to={to}
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                'flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-xs font-semibold transition-smooth active:scale-95',
+                active ? 'text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              <Icon className="size-5" strokeWidth={active ? 2.25 : 2} aria-hidden />
+              {label}
+            </Link>
+          )
+        })}
+      </div>
     </nav>
   )
 }
