@@ -23,7 +23,7 @@ export function WordHighlight({ word, rect, variant, interactive, onClick }: Wor
   const baseClasses = interactive
     ? 'absolute top-0 left-0 cursor-pointer border-0 p-0 transition-opacity duration-150 hover:opacity-90'
     : isActive
-      ? 'pointer-events-none absolute top-0 left-0 transition-[transform,width,height,opacity] duration-75 ease-out will-change-transform'
+      ? 'pointer-events-none absolute top-0 left-0 z-10 transition-[transform,width,height,opacity] duration-75 ease-out will-change-transform'
       : 'pointer-events-none absolute top-0 left-0 transition-opacity duration-150'
 
   const style: React.CSSProperties = {

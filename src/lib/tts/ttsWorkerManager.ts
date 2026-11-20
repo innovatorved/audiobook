@@ -816,7 +816,7 @@ export function peekSynthCache(text: string): CachedChunk | undefined {
   const trimmed = text.trim()
   if (!trimmed) return undefined
   const voice = resolveVoiceForEngine(store.voices, store.voice)
-  return synthCache.get(synthCacheKey(voice, store.speed, trimmed))
+  return synthCache.get(synthCacheKey(voice, 1.0, trimmed))
 }
 
 export function isSynthWarming(text: string): boolean {
@@ -824,7 +824,7 @@ export function isSynthWarming(text: string): boolean {
   const trimmed = text.trim()
   if (!trimmed) return false
   const voice = resolveVoiceForEngine(store.voices, store.voice)
-  return prefetchInFlight.has(synthCacheKey(voice, store.speed, trimmed))
+  return prefetchInFlight.has(synthCacheKey(voice, 1.0, trimmed))
 }
 
 export function warmSynthText(text: string): void {
@@ -843,7 +843,7 @@ export function prefetchSynthTexts(texts: string[]): void {
   if (!loaded || !engine) return
   const store = getStore()
   const voice = resolveVoiceForEngine(store.voices, store.voice)
-  const speed = store.speed
+  const speed = 1.0
   for (const raw of texts) {
     if (prefetchInFlight.size >= MAX_PREFETCH_IN_FLIGHT) return
     const trimmed = raw?.trim()

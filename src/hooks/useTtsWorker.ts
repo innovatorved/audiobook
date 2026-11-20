@@ -43,8 +43,9 @@ export function useTtsWorker() {
         sentenceIndex: number
       }) => void | Promise<void>,
     ) => {
-      const { voice, speed } = usePlayerStore.getState()
-      await startTtsStream(chunks, startIndex, voice, speed, onChunk)
+      const { voice } = usePlayerStore.getState()
+      // Synthesize at 1.0x so audioScheduler controls playbackRate cleanly without double-scaling speed
+      await startTtsStream(chunks, startIndex, voice, 1.0, onChunk)
     },
     [],
   )

@@ -159,6 +159,13 @@ export class HighlightSync {
         return t
       }
     }
+    // If time lands in a tiny gap between consecutive sentences, snap to the nearest active boundary
+    if (lo < len && this.timings[lo].startTime - time <= 0.08) {
+      return this.timings[lo]
+    }
+    if (hi >= 0 && time - this.timings[hi].endTime <= 0.15) {
+      return this.timings[hi]
+    }
     return undefined
   }
 

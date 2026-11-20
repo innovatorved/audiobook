@@ -476,6 +476,9 @@ export function ReaderPage() {
         startTime,
         duration,
       )
+      if (usePlayerStore.getState().isPlaying) {
+        highlightSync.start()
+      }
     },
     [sentences, words],
   )
@@ -1026,7 +1029,6 @@ export function ReaderPage() {
   const handleSpeedChange = useCallback(
     (newSpeed: number) => {
       const safeSpeed = clampPlaybackSpeed(newSpeed)
-      clearSynthCache()
       setSpeed(safeSpeed)
       savePreferences({ speed: safeSpeed })
       if (usesBrowserPlayback()) {
