@@ -458,13 +458,6 @@ export function ReaderPage() {
       })
 
       if (duration <= 0 || streamGenRef.current !== playbackGenRef.current) {
-        if (
-          duration <= 0 &&
-          usePlayerStore.getState().isPlaying &&
-          !userSeekInProgressRef.current
-        ) {
-          setPlaying(false)
-        }
         return
       }
 
@@ -484,7 +477,7 @@ export function ReaderPage() {
         duration,
       )
     },
-    [sentences, words, setPlaying],
+    [sentences, words],
   )
 
   const startBrowserSpeech = useCallback(
@@ -779,7 +772,7 @@ export function ReaderPage() {
     if (!isEngineReady() || sentenceTexts.length === 0) return
     const start = Math.max(0, currentSentenceIndex)
     const preload: string[] = []
-    for (let i = start; i < Math.min(start + 2, sentenceTexts.length); i++) {
+    for (let i = start; i < Math.min(start + 4, sentenceTexts.length); i++) {
       const text = sentenceTexts[i]?.trim()
       if (text) preload.push(text)
     }
@@ -959,11 +952,10 @@ export function ReaderPage() {
       if (engine !== 'browser') {
         void audioScheduler.ensureContext().then((ctx) => ctx.resume())
       }
-      enableContinuousPrefetch(false)
       userSeekInProgressRef.current = true
       scheduleSeek(sentenceIndex, true, wordIndex)
     },
-    [scheduleSeek, enableContinuousPrefetch, engine],
+    [scheduleSeek, engine],
   )
 
   const handleVoiceChange = useCallback(

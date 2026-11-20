@@ -127,7 +127,12 @@ function configureOrt(wasmBase: string, ortWasmBuffer?: ArrayBuffer): void {
   if (ortWasmBuffer && ortWasmBuffer.byteLength > 0) {
     ort.env.wasm.wasmBinary = ortWasmBuffer
   }
-  ort.env.wasm.numThreads = 1
+  const canThread =
+    typeof self !== 'undefined' &&
+    Boolean(self.crossOriginIsolated) &&
+    typeof SharedArrayBuffer !== 'undefined'
+  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 2 : 2
+  ort.env.wasm.numThreads = canThread ? Math.min(4, Math.max(2, Math.floor(cores / 2))) : 1
   ort.env.wasm.simd = true
   ort.env.wasm.proxy = false
   ort.env.wasm.initTimeout = ORT_INIT_TIMEOUT_MS

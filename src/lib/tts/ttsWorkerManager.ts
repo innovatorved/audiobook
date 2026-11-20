@@ -33,10 +33,10 @@ function isConstrainedDevice(): boolean {
 }
 
 const CONSTRAINED_DEVICE = isConstrainedDevice()
-const FIRST_STREAM_WINDOW = CONSTRAINED_DEVICE ? 4 : 6
-const CONTINUE_STREAM_WINDOW = CONSTRAINED_DEVICE ? 4 : 6
-const MAX_BUFFERED_AHEAD_SEC = CONSTRAINED_DEVICE ? 6 : 10
-const RESUME_BUFFER_THRESHOLD_SEC = CONSTRAINED_DEVICE ? 4 : 7
+const FIRST_STREAM_WINDOW = CONSTRAINED_DEVICE ? 8 : 12
+const CONTINUE_STREAM_WINDOW = CONSTRAINED_DEVICE ? 8 : 12
+const MAX_BUFFERED_AHEAD_SEC = CONSTRAINED_DEVICE ? 18 : 30
+const RESUME_BUFFER_THRESHOLD_SEC = CONSTRAINED_DEVICE ? 12 : 20
 const ENGINE_BYTES = 92 * 1024 * 1024
 const DOWNLOAD_WATCHDOG_MS = 180_000
 const COMPILE_WATCHDOG_MS = 120_000
@@ -89,8 +89,8 @@ type CachedChunk = {
   sampleRate: number
 }
 
-const SYNTH_CACHE_MAX = CONSTRAINED_DEVICE ? 32 : 96
-const MAX_PREFETCH_IN_FLIGHT = 1
+const SYNTH_CACHE_MAX = CONSTRAINED_DEVICE ? 48 : 128
+const MAX_PREFETCH_IN_FLIGHT = 3
 let backgroundPrefetchEnabled = false
 const synthCache = new Map<string, CachedChunk>()
 
@@ -264,9 +264,14 @@ function runWarmup(): void {
 }
 
 async function waitForBufferHeadroom(epoch: number, streamId: number): Promise<boolean> {
-  // Always yield at least one animation frame between sentences so UI/highlight stays smooth
-  await new Promise((resolve) => setTimeout(resolve, CONSTRAINED_DEVICE ? 24 : 16))
   if (epoch !== streamEpoch || acceptedStreamId !== streamId) return false
+
+  const buffered = audioScheduler.getBufferedAheadSeconds()
+  // Only yield briefly once we already have comfortable audio buffered ahead
+  if (buffered > 3) {
+    await new Promise((resolve) => setTimeout(resolve, CONSTRAINED_DEVICE ? 8 : 4))
+    if (epoch !== streamEpoch || acceptedStreamId !== streamId) return false
+  }
 
   if (audioScheduler.getBufferedAheadSeconds() > MAX_BUFFERED_AHEAD_SEC) {
     while (
@@ -274,7 +279,7 @@ async function waitForBufferHeadroom(epoch: number, streamId: number): Promise<b
       epoch === streamEpoch &&
       acceptedStreamId === streamId
     ) {
-      await new Promise((resolve) => setTimeout(resolve, 120))
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
   return epoch === streamEpoch && acceptedStreamId === streamId
@@ -317,7 +322,7 @@ async function runStreamWindow(): Promise<void> {
     streamContext.nextIndex = index
     streamContext.windowSize = CONTINUE_STREAM_WINDOW
     if (streamContext.nextIndex < streamContext.chunks.length) {
-      enqueueStreamWindow()
+      enqueueStreamWindow(true)
     } else {
       streamContext = null
     }
@@ -387,20 +392,22 @@ async function runStreamWindow(): Promise<void> {
   streamContext.nextIndex = index
   streamContext.windowSize = CONTINUE_STREAM_WINDOW
   if (streamContext.nextIndex < streamContext.chunks.length) {
-    enqueueStreamWindow()
+    enqueueStreamWindow(true)
   } else {
     streamContext = null
   }
 }
 
-function enqueueStreamWindow(): void {
+function enqueueStreamWindow(isContinuation = false): void {
   const epoch = streamEpoch
-  const prior = currentStreamJob
+  const prior = isContinuation ? Promise.resolve() : currentStreamJob
   currentStreamJob = (async () => {
-    await Promise.race([
-      prior.catch(() => undefined),
-      new Promise<void>((resolve) => setTimeout(resolve, STALE_JOB_HARD_STOP_MS)),
-    ])
+    if (!isContinuation) {
+      await Promise.race([
+        prior.catch(() => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, STALE_JOB_HARD_STOP_MS)),
+      ])
+    }
     if (epoch !== streamEpoch) return
     await runStreamWindow().catch((err) => {
       console.warn('[TTS] Stream window interrupted:', err)

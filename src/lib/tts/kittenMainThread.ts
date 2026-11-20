@@ -87,7 +87,12 @@ async function configureMainThreadOrt(
     wasm: `${base}ort-wasm-simd-threaded.wasm`,
   }
   ort.env.wasm.wasmBinary = await getOrtWasmBinary()
-  ort.env.wasm.numThreads = 1
+  const canThread =
+    typeof self !== 'undefined' &&
+    Boolean(self.crossOriginIsolated) &&
+    typeof SharedArrayBuffer !== 'undefined'
+  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 2 : 2
+  ort.env.wasm.numThreads = canThread ? Math.min(4, Math.max(2, Math.floor(cores / 2))) : 1
   ort.env.wasm.simd = true
   ort.env.wasm.proxy = true
   ort.env.wasm.initTimeout = ORT_INIT_TIMEOUT_MS

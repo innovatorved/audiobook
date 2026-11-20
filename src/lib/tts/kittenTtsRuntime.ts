@@ -8,7 +8,7 @@ import type * as OrtNamespace from 'onnxruntime-web/wasm'
 import { trimPcmSilence } from '@/lib/audio/trimSilence'
 
 const SAMPLE_RATE = 24000
-const MAX_CHUNK_CHARS = 200
+const MAX_CHUNK_CHARS = 140
 /**
  * PL-BERT in kitten_tts_micro_v0_8.ort has a hard maximum of 512 tokens
  * (513+ crashes `/bert/Expand` with `invalid expand shape`), and `voices.npz`
