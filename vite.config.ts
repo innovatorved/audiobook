@@ -82,11 +82,11 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: /\/ort\/.*\.(?:wasm|mjs)$/,
+            urlPattern: /\/ort\/.*/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'ort-wasm-runtime',
-              expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              expiration: { maxEntries: 16, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },
@@ -127,7 +127,7 @@ export default defineConfig({
     ],
   },
   optimizeDeps: {
-    include: ['fflate', 'onnxruntime-web/wasm'],
+    include: ['fflate', 'onnxruntime-web/webgpu'],
     exclude: ['kitten-tts-js'],
   },
   worker: {

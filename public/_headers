@@ -15,11 +15,7 @@
   Cache-Control: public, max-age=31536000, immutable
   Cross-Origin-Resource-Policy: cross-origin
 
-/ort/ort-wasm-simd-threaded.wasm
-  Content-Type: application/wasm
-  Cross-Origin-Resource-Policy: cross-origin
-
-/ort/ort-wasm-simd-threaded.mjs
+/ort/ort-wasm-simd-threaded.jsep.mjs
   Content-Type: text/javascript
   Cross-Origin-Resource-Policy: cross-origin
 

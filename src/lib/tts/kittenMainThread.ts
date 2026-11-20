@@ -3,15 +3,29 @@ import { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
 import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
 import { preloadPhonemizer } from '@/lib/tts/phonemizerLazy'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
-import type { InferenceSession } from 'onnxruntime-web/wasm'
+import type { InferenceSession } from 'onnxruntime-web/webgpu'
 
 const ESTIMATED_BYTES = 92 * 1024 * 1024
 const COMPILE_TIMEOUT_MS = 120_000
 const ORT_INIT_TIMEOUT_MS = 120_000
 
-function getSessionOptions(config: Record<string, unknown>): InferenceSession.SessionOptions {
+async function hasUsableWebGpu(): Promise<boolean> {
+  try {
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu
+    if (!gpu || typeof gpu.requestAdapter !== 'function') return false
+    const adapter = await gpu.requestAdapter()
+    return Boolean(adapter)
+  } catch {
+    return false
+  }
+}
+
+function getSessionOptions(
+  config: Record<string, unknown>,
+  useWebGpu: boolean,
+): InferenceSession.SessionOptions {
   return {
-    executionProviders: ['wasm'],
+    executionProviders: useWebGpu ? ['webgpu', 'wasm'] : ['wasm'],
     graphOptimizationLevel: config.model_type === 'kokoro' ? 'all' : 'disabled',
   }
 }
@@ -79,12 +93,13 @@ function raceWithTimeout<T>(
 }
 
 async function configureMainThreadOrt(
-  ort: typeof import('onnxruntime-web/wasm'),
+  ort: typeof import('onnxruntime-web/webgpu'),
+  useWebGpu: boolean,
 ): Promise<void> {
   const base = wasmBaseUrl()
   ort.env.wasm.wasmPaths = {
-    mjs: `${base}ort-wasm-simd-threaded.mjs`,
-    wasm: `${base}ort-wasm-simd-threaded.wasm`,
+    mjs: `${base}ort-wasm-simd-threaded.jsep.mjs`,
+    wasm: `${base}ort-wasm-simd-threaded.jsep.wasm`,
   }
   ort.env.wasm.wasmBinary = await getOrtWasmBinary()
   const canThread =
@@ -94,7 +109,8 @@ async function configureMainThreadOrt(
   const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 2 : 2
   ort.env.wasm.numThreads = canThread ? Math.min(4, Math.max(2, Math.floor(cores / 2))) : 1
   ort.env.wasm.simd = true
-  ort.env.wasm.proxy = true
+  // WebGPU must run without WASM proxy worker; WASM CPU uses proxy worker
+  ort.env.wasm.proxy = !useWebGpu
   ort.env.wasm.initTimeout = ORT_INIT_TIMEOUT_MS
 }
 
@@ -117,9 +133,10 @@ export async function loadKittenOnMainThread(
   onProgress(ESTIMATED_BYTES * 0.4, ESTIMATED_BYTES, 'downloading')
   onStage?.('ort-init')
 
-  const ort = await import('onnxruntime-web/wasm')
+  const ort = await import('onnxruntime-web/webgpu')
   assertNotAborted(shouldAbort)
-  await configureMainThreadOrt(ort)
+  const useWebGpu = await hasUsableWebGpu()
+  await configureMainThreadOrt(ort, useWebGpu)
 
   onProgress(ESTIMATED_BYTES * 0.55, ESTIMATED_BYTES, 'downloading')
   onCompiling?.()
@@ -133,11 +150,21 @@ export async function loadKittenOnMainThread(
   }, 5000)
   let session
   try {
-    session = await raceWithTimeout(
-      ort.InferenceSession.create(modelBuffer, getSessionOptions(config)),
-      COMPILE_TIMEOUT_MS,
-      shouldAbort,
-    )
+    try {
+      session = await raceWithTimeout(
+        ort.InferenceSession.create(modelBuffer, getSessionOptions(config, useWebGpu)),
+        COMPILE_TIMEOUT_MS,
+        shouldAbort,
+      )
+    } catch (webGpuErr) {
+      if (!useWebGpu) throw webGpuErr
+      console.warn('[TTS] WebGPU session failed, falling back to WASM:', webGpuErr)
+      session = await raceWithTimeout(
+        ort.InferenceSession.create(modelBuffer, getSessionOptions(config, false)),
+        COMPILE_TIMEOUT_MS,
+        shouldAbort,
+      )
+    }
   } finally {
     clearInterval(compileHeartbeat)
   }

@@ -898,6 +898,10 @@ export async function startTtsStream(
 
   onChunkRef = onChunk
   streamContext = null
+  // Preempt any in-flight background prefetch so user playback starts first
+  prefetchEpoch++
+  prefetchInFlight.clear()
+  engine.abort()
 
   let cached = cacheKey ? synthCache.get(cacheKey) : undefined
   if (!cached && cacheKey && prefetchInFlight.has(cacheKey)) {

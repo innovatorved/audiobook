@@ -1,19 +1,33 @@
 /// <reference lib="webworker" />
 
-import * as ort from 'onnxruntime-web/wasm'
+import * as ort from 'onnxruntime-web/webgpu'
 import { loadNpz } from '@/lib/tts/npzLoader'
 import { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
 import { preloadPhonemizer } from '@/lib/tts/phonemizerLazy'
-import type { InferenceSession } from 'onnxruntime-web/wasm'
+import type { InferenceSession } from 'onnxruntime-web/webgpu'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
 
 const ESTIMATED_BYTES = 92 * 1024 * 1024
 const COMPILE_TIMEOUT_MS = 120_000
 const ORT_INIT_TIMEOUT_MS = 120_000
 
-function getSessionOptions(config: Record<string, unknown>): InferenceSession.SessionOptions {
+async function hasUsableWebGpu(): Promise<boolean> {
+  try {
+    const gpu = (navigator as Navigator & { gpu?: { requestAdapter: () => Promise<unknown> } }).gpu
+    if (!gpu || typeof gpu.requestAdapter !== 'function') return false
+    const adapter = await gpu.requestAdapter()
+    return Boolean(adapter)
+  } catch {
+    return false
+  }
+}
+
+function getSessionOptions(
+  config: Record<string, unknown>,
+  useWebGpu: boolean,
+): InferenceSession.SessionOptions {
   return {
-    executionProviders: ['wasm'],
+    executionProviders: useWebGpu ? ['webgpu', 'wasm'] : ['wasm'],
     graphOptimizationLevel: config.model_type === 'kokoro' ? 'all' : 'disabled',
   }
 }
@@ -121,8 +135,8 @@ function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> 
 
 function configureOrt(wasmBase: string, ortWasmBuffer?: ArrayBuffer): void {
   ort.env.wasm.wasmPaths = {
-    mjs: `${wasmBase}ort-wasm-simd-threaded.mjs`,
-    wasm: `${wasmBase}ort-wasm-simd-threaded.wasm`,
+    mjs: `${wasmBase}ort-wasm-simd-threaded.jsep.mjs`,
+    wasm: `${wasmBase}ort-wasm-simd-threaded.jsep.wasm`,
   }
   if (ortWasmBuffer && ortWasmBuffer.byteLength > 0) {
     ort.env.wasm.wasmBinary = ortWasmBuffer
@@ -157,11 +171,21 @@ async function handleLoad(msg: LoadMessage): Promise<void> {
     postProgress(ESTIMATED_BYTES * 0.65, ESTIMATED_BYTES, 'downloading', 'compiling')
   }, 5000)
   let session
+  const useWebGpu = await hasUsableWebGpu()
   try {
-    session = await raceWithTimeout(
-      ort.InferenceSession.create(msg.modelBuffer, getSessionOptions(msg.config)),
-      COMPILE_TIMEOUT_MS,
-    )
+    try {
+      session = await raceWithTimeout(
+        ort.InferenceSession.create(msg.modelBuffer, getSessionOptions(msg.config, useWebGpu)),
+        COMPILE_TIMEOUT_MS,
+      )
+    } catch (webGpuErr) {
+      if (!useWebGpu) throw webGpuErr
+      console.warn('[TTS Worker] WebGPU session failed, falling back to WASM:', webGpuErr)
+      session = await raceWithTimeout(
+        ort.InferenceSession.create(msg.modelBuffer, getSessionOptions(msg.config, false)),
+        COMPILE_TIMEOUT_MS,
+      )
+    }
   } finally {
     clearInterval(compileHeartbeat)
   }
