@@ -591,15 +591,17 @@ export function ReaderPage() {
   const pausePlayback = useCallback(async () => {
     if (!usePlayerStore.getState().isPlaying) return
     playbackGenRef.current++
-    stopStream()
     streamingRef.current = false
-    if (usePlayerStore.getState().engine === 'browser' || usesBrowserPlayback()) {
-      browserSpeech.pause()
-    } else {
-      await audioScheduler.pause()
-      highlightSync.pause()
-    }
+    // Update UI & stop highlight synchronously so Pause responds in 0ms
     setPlaying(false)
+    highlightSync.pause()
+    stopStream()
+    browserSpeech.pause()
+    try {
+      await audioScheduler.pause()
+    } catch {
+      // Ignore suspended/closed AudioContext errors
+    }
     void persist()
   }, [stopStream, setPlaying, persist])
 
