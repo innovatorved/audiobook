@@ -20,14 +20,38 @@ const SPACE_TOKEN_ID = 16
 const MIN_PRONOUNCEABLE_TOKEN_ID = 17
 
 const DEFAULT_VOICE_ALIASES: Record<string, string> = {
-  Bella: 'expr-voice-2-f',
-  Jasper: 'expr-voice-2-m',
-  Luna: 'expr-voice-3-f',
-  Bruno: 'expr-voice-3-m',
-  Rosie: 'expr-voice-4-f',
-  Hugo: 'expr-voice-4-m',
-  Kiki: 'expr-voice-5-f',
-  Leo: 'expr-voice-5-m',
+  Heart: 'af_heart',
+  Bella: 'af_bella',
+  Nova: 'af_nova',
+  Michael: 'am_michael',
+  Sky: 'af_sky',
+  Adam: 'am_adam',
+  Emma: 'bf_emma',
+  George: 'bm_george',
+}
+
+/** Exact phoneme vocabulary from onnx-community/Kokoro-82M-v1.0-ONNX/tokenizer.json */
+const KOKORO_VOCAB: Record<string, number> = {
+  $: 0, ';': 1, ':': 2, ',': 3, '.': 4, '!': 5, '?': 6, '—': 9, '…': 10, '"': 11,
+  '(': 12, ')': 13, '“': 14, '”': 15, ' ': 16, '\u0303': 17, ʣ: 18, ʥ: 19, ʦ: 20, ʨ: 21,
+  ᵝ: 22, ꭧ: 23, A: 24, I: 25, O: 31, Q: 33, S: 35, T: 36, W: 39, Y: 41, ᵊ: 42,
+  a: 43, b: 44, c: 45, d: 46, e: 47, f: 48, h: 50, i: 51, j: 52, k: 53, l: 54, m: 55,
+  n: 56, o: 57, p: 58, q: 59, r: 60, s: 61, t: 62, u: 63, v: 64, w: 65, x: 66, y: 67,
+  z: 68, ɑ: 69, ɐ: 70, ɒ: 71, æ: 72, β: 75, ɔ: 76, ɕ: 77, ç: 78, ɖ: 80, ð: 81, ʤ: 82,
+  ə: 83, ɚ: 85, ɛ: 86, ɜ: 87, ɟ: 90, ɡ: 92, ɥ: 99, ɨ: 101, ɪ: 102, ʝ: 103, ɯ: 110,
+  ɰ: 111, ŋ: 112, ɳ: 113, ɲ: 114, ɴ: 115, ø: 116, ɸ: 118, θ: 119, œ: 120, ɹ: 123,
+  ɾ: 125, ɻ: 126, ʁ: 128, ɽ: 129, ʂ: 130, ʃ: 131, ʈ: 132, ʧ: 133, ʊ: 135, ʋ: 136,
+  ʌ: 138, ɣ: 139, ɤ: 140, χ: 142, ʎ: 143, ʒ: 147, ʔ: 148, ˈ: 156, ˌ: 157, ː: 158,
+  ʰ: 162, ʲ: 164, '↓': 169, '→': 171, '↗': 172, '↘': 173, ᵻ: 177,
+}
+
+function kokoroTextToIds(phonemes: string): number[] {
+  const ids: number[] = []
+  for (const ch of phonemes) {
+    const id = KOKORO_VOCAB[ch]
+    if (id !== undefined) ids.push(id)
+  }
+  return ids
 }
 
 export type KittenVoiceMap = Record<string, { data: Float32Array; shape: number[] }>
@@ -84,6 +108,7 @@ function splitTokenIds(rawIds: number[], maxTokens: number): number[][] {
 export class KittenTtsRuntime {
   private readonly ort: typeof OrtNamespace
   private readonly preprocessor = new TextPreprocessor({ remove_punctuation: false })
+  private readonly isKokoro: boolean
   private inferenceChain: Promise<void> = Promise.resolve()
   readonly voiceAliases: Record<string, string>
   readonly speedPriors: Record<string, number>
@@ -96,10 +121,10 @@ export class KittenTtsRuntime {
     ort: typeof OrtNamespace,
   ) {
     this.ort = ort
-    this.voiceAliases = {
-      ...DEFAULT_VOICE_ALIASES,
-      ...((config.voice_aliases as Record<string, string> | undefined) ?? {}),
-    }
+    this.isKokoro = config.model_type === 'kokoro'
+    const configAliases = (config.voice_aliases as Record<string, string> | undefined) ?? {}
+    this.voiceAliases =
+      Object.keys(configAliases).length > 0 ? { ...configAliases } : { ...DEFAULT_VOICE_ALIASES }
     this.speedPriors = (config.speed_priors as Record<string, number> | undefined) ?? {}
     this.availableVoices = Object.keys(this.voices)
   }
@@ -236,10 +261,14 @@ export class KittenTtsRuntime {
     speed: number,
   ): Promise<PreparedInferenceInput[]> {
     let phonemes = await phonemize(preprocessedChunk)
-    phonemes = basic_english_tokenize(phonemes).join(' ')
+    if (this.isKokoro) {
+      phonemes = phonemes.replace(/\s+/g, ' ').trim()
+    } else {
+      phonemes = basic_english_tokenize(phonemes).join(' ')
+    }
     if (!phonemes.trim()) return []
 
-    const rawIds = textToIds(phonemes)
+    const rawIds = this.isKokoro ? kokoroTextToIds(phonemes) : textToIds(phonemes)
     if (!rawIds.some((id) => id >= MIN_PRONOUNCEABLE_TOKEN_ID)) {
       return []
     }
@@ -249,9 +278,11 @@ export class KittenTtsRuntime {
       voiceKey = this.voiceAliases[voiceName]
     }
     if (!this.voices[voiceKey]) {
-      throw new Error(
-        `Voice '${voiceName}' not found. Available: ${this.availableVoices.join(', ')}`,
-      )
+      const fallbackKey = this.availableVoices[0]
+      if (!fallbackKey) {
+        throw new Error(`Voice '${voiceName}' not found and no fallback voices available.`)
+      }
+      voiceKey = fallbackKey
     }
 
     const voiceEntry = this.voices[voiceKey]
@@ -263,10 +294,12 @@ export class KittenTtsRuntime {
       effectiveSpeed *= this.speedPriors[voiceKey]
     }
 
-    const batches = splitTokenIds(rawIds, MAX_CONTENT_TOKENS)
+    const maxTokens = this.isKokoro ? 480 : MAX_CONTENT_TOKENS
+    const batches = splitTokenIds(rawIds, maxTokens)
     return batches.map((batchIds) => {
-      const tokenIds = [0, ...batchIds, 10, 0]
-      const refId = Math.min(tokenIds.length, voiceEntry.shape[0] - 1)
+      const tokenIds = this.isKokoro ? [0, ...batchIds, 0] : [0, ...batchIds, 10, 0]
+      const styleIndex = this.isKokoro ? batchIds.length : tokenIds.length
+      const refId = Math.min(styleIndex, voiceEntry.shape[0] - 1)
       const style = voiceData.slice(refId * styleDim, (refId + 1) * styleDim)
       return {
         input_ids: tokenIds,

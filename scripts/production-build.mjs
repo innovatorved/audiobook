@@ -12,9 +12,9 @@ export function isCloudflarePages() {
 const cfPages = isCloudflarePages()
 const env = { ...process.env, CF_PAGES: cfPages ? '1' : process.env.CF_PAGES ?? '' }
 
-console.log('[build] Fetching voice model (ORT conversion requires Python 3)…')
+console.log('[build] Checking Kokoro-82M voice model bundle…')
 execSync('node scripts/patch-phonemizer.mjs', { stdio: 'inherit', env })
-execSync('node scripts/fetch-kitten-model.mjs', { stdio: 'inherit', env })
+execSync('node scripts/fetch-kokoro-model.mjs', { stdio: 'inherit', env })
 
 if (cfPages) {
   console.log('[build] Cloudflare Pages detected — using size-limited build')

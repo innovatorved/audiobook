@@ -3,7 +3,7 @@ import type { TtsEngineType, VoiceInfo } from '@/lib/types'
 import { clampPlaybackSpeed } from '@/lib/audio/speed'
 
 const STORAGE_KEY = 'audiobook-prefs'
-const DEFAULT_VOICE = 'Bella'
+const DEFAULT_VOICE = 'Heart'
 const DEFAULT_ENGINE: TtsEngineType = 'kitten'
 
 export type ThemePreference = 'light' | 'dark' | 'system'

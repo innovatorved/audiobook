@@ -1,0 +1,16 @@
+{
+  "model_type": "kokoro",
+  "model_file": "kokoro_v1_0_q8.onnx",
+  "sample_rate": 24000,
+  "voice_aliases": {
+    "Heart": "af_heart",
+    "Bella": "af_bella",
+    "Nova": "af_nova",
+    "Michael": "am_michael",
+    "Sky": "af_sky",
+    "Adam": "am_adam",
+    "Emma": "bf_emma",
+    "George": "bm_george"
+  },
+  "speed_priors": {}
+}

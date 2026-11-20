@@ -7,13 +7,15 @@ import { preloadPhonemizer } from '@/lib/tts/phonemizerLazy'
 import type { InferenceSession } from 'onnxruntime-web/wasm'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
 
-const ESTIMATED_BYTES = 58 * 1024 * 1024
+const ESTIMATED_BYTES = 92 * 1024 * 1024
 const COMPILE_TIMEOUT_MS = 120_000
 const ORT_INIT_TIMEOUT_MS = 120_000
 
-const SESSION_OPTIONS: InferenceSession.SessionOptions = {
-  executionProviders: ['wasm'],
-  graphOptimizationLevel: 'disabled',
+function getSessionOptions(config: Record<string, unknown>): InferenceSession.SessionOptions {
+  return {
+    executionProviders: ['wasm'],
+    graphOptimizationLevel: config.model_type === 'kokoro' ? 'all' : 'disabled',
+  }
 }
 
 type LoadMessage = {
@@ -147,7 +149,7 @@ async function handleLoad(msg: LoadMessage): Promise<void> {
   let session
   try {
     session = await raceWithTimeout(
-      ort.InferenceSession.create(msg.modelBuffer, SESSION_OPTIONS),
+      ort.InferenceSession.create(msg.modelBuffer, getSessionOptions(msg.config)),
       COMPILE_TIMEOUT_MS,
     )
   } finally {

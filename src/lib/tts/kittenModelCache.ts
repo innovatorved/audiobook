@@ -8,7 +8,7 @@ export type KittenManifest = {
 }
 
 export async function fetchKittenManifest(): Promise<KittenManifest> {
-  const resp = await fetch('/kitten-model/manifest.json')
+  const resp = await fetch('/kokoro-model/manifest.json')
   if (!resp.ok) {
     throw new Error(
       'Voice model bundle missing. Rebuild and redeploy with npm run build.',

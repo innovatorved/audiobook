@@ -70,7 +70,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   modelError: null,
   speed: 1,
   volume: 1,
-  voice: 'Bella',
+  voice: 'Heart',
   engine: 'kitten',
   voices: [],
   activeWordIndex: -1,

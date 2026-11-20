@@ -1,0 +1,17 @@
+{
+  "repo": "onnx-community/Kokoro-82M-v1.0-ONNX",
+  "files": {
+    "config.json": {
+      "size": 335,
+      "parts": 1
+    },
+    "voices.npz": {
+      "size": 4179378,
+      "parts": 1
+    },
+    "kokoro_v1_0_q8.onnx": {
+      "size": 92361116,
+      "parts": 12
+    }
+  }
+}

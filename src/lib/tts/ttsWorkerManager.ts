@@ -8,7 +8,6 @@ import {
   loadLatestCachedKittenModel,
   saveCachedKittenModel,
 } from '@/lib/tts/kittenModelCache'
-import { isCrossOriginIsolated } from '@/lib/tts/kittenPlatform'
 import { getPreferredVoice, resolveVoiceForEngine } from '@/lib/preferences'
 import { syncVoiceWithEngineVoices } from '@/lib/tts/voiceSync'
 import {
@@ -20,7 +19,7 @@ import { audioScheduler } from '@/lib/audio/scheduler'
 import { usePlayerStore, type ModelLoadPhase, type ModelLoadStatus } from '@/stores/playerStore'
 import { toast } from 'sonner'
 
-const KITTEN_MODEL_ID = 'KittenML/kitten-tts-micro-0.8'
+const KITTEN_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 
 function isConstrainedDevice(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -38,7 +37,7 @@ const FIRST_STREAM_WINDOW = CONSTRAINED_DEVICE ? 4 : 6
 const CONTINUE_STREAM_WINDOW = CONSTRAINED_DEVICE ? 4 : 6
 const MAX_BUFFERED_AHEAD_SEC = CONSTRAINED_DEVICE ? 6 : 10
 const RESUME_BUFFER_THRESHOLD_SEC = CONSTRAINED_DEVICE ? 4 : 7
-const ENGINE_BYTES = 58 * 1024 * 1024
+const ENGINE_BYTES = 92 * 1024 * 1024
 const DOWNLOAD_WATCHDOG_MS = 180_000
 const COMPILE_WATCHDOG_MS = 120_000
 const STALE_JOB_HARD_STOP_MS = 200
@@ -661,12 +660,6 @@ export async function switchEngine(_engineType: 'kitten' = 'kitten'): Promise<vo
 async function prepareKittenInBackgroundWork(): Promise<void> {
   if (loadInFlight && loaded) return
 
-  if (!isCrossOriginIsolated()) {
-    console.info('[TTS] Cross-origin isolation unavailable; using browser speech engine.')
-    void activateBrowserEngine()
-    return
-  }
-
   loading = true
   loadInFlight = true
 
@@ -731,12 +724,6 @@ async function prepareKittenInBackgroundWork(): Promise<void> {
 
 async function switchEngineWork(): Promise<void> {
   if (loadInFlight && loaded) return
-
-  if (!isCrossOriginIsolated()) {
-    toast.info('Cross-origin isolation is not supported in this browser. Using system browser voices.')
-    void activateBrowserEngine()
-    return
-  }
 
   const startingCold = !loaded && !loading
   if (startingCold) {

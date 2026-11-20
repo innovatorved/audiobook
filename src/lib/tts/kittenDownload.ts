@@ -1,6 +1,6 @@
 import type { KittenManifest } from '@/lib/tts/kittenModelCache'
 
-const MODEL_BASE = '/kitten-model'
+const MODEL_BASE = '/kokoro-model'
 const PART_CHUNK_SIZE = 8 * 1024 * 1024
 const PART_DOWNLOAD_CONCURRENCY = 3
 

@@ -70,13 +70,13 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,ico,svg,png,woff2}'],
-        globIgnores: ['**/ort/**', '**/kitten-model/**', '**/*.wasm'],
+        globIgnores: ['**/ort/**', '**/kitten-model/**', '**/kokoro-model/**', '**/*.wasm'],
         runtimeCaching: [
           {
-            urlPattern: /\/kitten-model\/manifest\.json$/,
+            urlPattern: /\/kokoro-model\/manifest\.json$/,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'kitten-manifest',
+              cacheName: 'kokoro-manifest',
               expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 * 7 },
               networkTimeoutSeconds: 3,
             },
@@ -92,7 +92,7 @@ export default defineConfig({
           },
         ],
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/ort\//, /^\/kitten-model\//],
+        navigateFallbackDenylist: [/^\/ort\//, /^\/kitten-model\//, /^\/kokoro-model\//],
       },
       devOptions: {
         enabled: false,

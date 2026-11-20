@@ -3,10 +3,7 @@ import type { TtsEngine, TtsStreamChunk, TtsStreamOptions } from '@/lib/tts/engi
 import type { KittenTtsRuntime } from '@/lib/tts/kittenTtsRuntime'
 import { LoadAbortedError, loadKittenOnMainThread } from '@/lib/tts/kittenMainThread'
 import { getOrtWasmBinary } from '@/lib/tts/ortPreload'
-import {
-  isCrossOriginIsolated,
-  shouldUseMainThreadOrt,
-} from '@/lib/tts/kittenPlatform'
+import { shouldUseMainThreadOrt } from '@/lib/tts/kittenPlatform'
 import type { CompileStage } from '@/lib/tts/kittenTypes'
 import KittenWorker from '../../workers/kittenOrt.worker.ts?worker'
 
@@ -345,12 +342,6 @@ export class KittenEngine implements TtsEngine {
     preload?: KittenPreload,
     opts?: KittenLoadOptions,
   ): Promise<void> {
-    if (!isCrossOriginIsolated()) {
-      throw new Error(
-        'Cross-origin isolation (SharedArrayBuffer) is not available in this browser environment. Using browser speech instead.',
-      )
-    }
-
     if (!preload) {
       throw new Error('KittenEngine requires pre-downloaded model buffers')
     }
